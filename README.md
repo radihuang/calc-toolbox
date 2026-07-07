@@ -2,6 +2,8 @@
 
 工地與設計案頭常用的計算小工具。即算即檢核，附法規與規範條文出處，算完可直接複製成檢核紀錄。
 
+**線上使用**：https://radihuang.github.io/calc-toolbox/
+
 零建置（zero-build）：每個工具都是單一 `index.html`，React 18 + Babel 由 CDN 載入、瀏覽器端即時編譯。開檔即用，GitHub Pages 直接部署。
 
 ## 結構
@@ -39,7 +41,7 @@ rebar/index.html    鋼筋混凝土計算機
 
 ## 部署
 
-GitHub Pages（根目錄）即可。若沿用既有 `slope-calculator` repo：
+GitHub Pages（根目錄）即可，目前部署於 https://radihuang.github.io/calc-toolbox/ 。若沿用既有 `slope-calculator` repo：
 
 1. 將原 `index.html` 移至 `slope/index.html`
 2. 加入本專案之 `index.html`（入口頁）與 `rebar/index.html`

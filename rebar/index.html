@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>鋼筋混凝土計算機 · RC Rebar Calculator</title>
+  <meta name="description" content="輸入鋼筋號數、間距與構材尺寸，即時計算鋼筋量、鋼筋比、有效深度與數量估算，並依《建築物混凝土結構設計規範》（112年版）逐項檢核，附條文出處，可一鍵複製檢核紀錄。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='4' width='20' height='24' rx='2' fill='none' stroke='%231E241F' stroke-width='2.5'/><circle cx='12' cy='22' r='2.6' fill='%231C6E63'/><circle cx='20' cy='22' r='2.6' fill='%231C6E63'/></svg>" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #EBEEE9; }
+    #root { min-height: 100vh; }
+    #boot { font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+      color: #5C635A; text-align: center; padding: 80px 20px; font-size: 14px; }
+  </style>
+
+  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build） -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"><div id="boot">載入中…</div></div>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+// 鋼筋混凝土計算機 — 配筋 / 檢核 / 數量
+// 版：號數＋間距＋版厚 → As、ρ、最小鋼筋量、最大間距、淨間距、保護層
+// 梁：尺寸＋支數 → As、ρ、As,min、淨間距、箍筋間距、保護層
+// 柱：尺寸＋每面支數 → ρg、淨間距、箍筋間距、保護層
+// 依內政部《建築物混凝土結構設計規範》（112年版，自113.1.1生效）逐項檢核並註明條文；
+// 鋼筋規格依 CNS 560。單位採規範主列之公制（kgf/cm²）。
+
+const CSS = `
+  .sc-wrap{
+    --paper:#EBEEE9; --panel:#F8F9F6; --ink:#1E241F; --ink-2:#5C635A;
+    --line:#CDD3C9; --accent:#1C6E63; --accent-soft:#DCEAE5;
+    --ok:#2E7D4F; --warn:#B0781A; --bad:#AF3A2E;
+    --grid:#DCE1D8;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    min-height:100%; padding:22px; box-sizing:border-box;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sc-shell{max-width:860px;margin:0 auto;}
+  .sc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    justify-content:space-between;margin-bottom:4px;}
+  .sc-headL{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .sc-title{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0;}
+  .sc-sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+  .sc-back{font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:4px 10px;background:#fff;transition:.12s;}
+  .sc-back:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-rule{height:1px;background:var(--line);margin:14px 0 20px;}
+  .sc-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);
+    font-weight:600;margin:0 0 10px;}
+
+  .sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:640px){.sc-grid{grid-template-columns:1fr;}}
+
+  .sc-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;}
+
+  .sc-field{margin-bottom:14px;}
+  .sc-field:last-child{margin-bottom:0;}
+  .sc-label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;font-weight:600;margin-bottom:6px;}
+  .sc-label small{font-weight:400;color:var(--ink-2);font-family:var(--mono);font-size:11px;}
+  .sc-inputrow{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:9px;
+    overflow:hidden;background:#fff;transition:border-color .15s,box-shadow .15s;}
+  .sc-inputrow:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .sc-pre{display:flex;align-items:center;padding:0 4px 0 12px;font-family:var(--mono);
+    font-size:18px;color:var(--ink-2);}
+  .sc-input{flex:1;min-width:0;border:0;outline:0;background:transparent;
+    font-family:var(--mono);font-size:20px;padding:11px 12px;color:var(--ink);width:100%;}
+  .sc-unit{display:flex;align-items:center;padding:0 12px;font-family:var(--mono);
+    font-size:12px;color:var(--ink-2);background:#F0F2ED;border-left:1px solid var(--line);}
+  .sc-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  .sc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;flex-wrap:wrap;}
+  .sc-seg button{border:0;background:transparent;font-family:var(--sans);font-size:12px;
+    padding:7px 11px;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
+  .sc-seg button+button{border-left:1px solid var(--line);}
+  .sc-seg button[data-on="true"]{background:var(--ink);color:#fff;font-weight:600;}
+  .sc-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+
+  .sc-presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .sc-chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;
+    font-size:11.5px;font-family:var(--mono);color:var(--ink-2);cursor:pointer;transition:.12s;}
+  .sc-chip:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-chip[data-on="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-scen{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .sc-scenLab{font-size:11px;letter-spacing:.1em;color:var(--ink-2);font-weight:600;}
+  .sc-chip-scen{font-family:var(--sans);font-size:12px;padding:6px 12px;}
+  .sc-chip-scen:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-eyebrowRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .sc-copy{border:1px solid var(--line);background:#fff;border-radius:7px;font-family:var(--sans);
+    font-size:11.5px;color:var(--ink-2);padding:5px 11px;cursor:pointer;transition:.12s;}
+  .sc-copy:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .sc-copy:disabled{opacity:.45;cursor:default;}
+  .sc-copy[data-done="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-readouts{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:2px;}
+  .sc-ro{background:var(--panel);padding:13px 12px;text-align:center;}
+  .sc-ro .k{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:600;}
+  .sc-ro .v{font-family:var(--mono);font-size:24px;font-weight:600;letter-spacing:-.02em;
+    line-height:1.15;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .sc-ro .u{font-family:var(--mono);font-size:12px;color:var(--ink-2);}
+  .sc-ro .sub{font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:3px;}
+
+  .sc-result{margin-top:14px;border:1px solid var(--accent);background:var(--accent-soft);
+    border-radius:10px;padding:11px 14px;display:flex;align-items:baseline;
+    justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .sc-result .lab{font-size:12.5px;color:var(--ink);font-weight:600;}
+  .sc-result .val{font-family:var(--mono);font-size:22px;font-weight:650;color:var(--accent);
+    font-variant-numeric:tabular-nums;}
+  .sc-result .sub2{display:block;font-size:11px;font-weight:400;color:var(--ink-2);margin-top:1px;}
+
+  .sc-figwrap{margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:6px 6px 2px;overflow:hidden;}
+  .sc-fig{display:block;width:100%;height:auto;}
+  .sc-fig .grid{stroke:var(--grid);stroke-width:1;}
+  .sc-fig .conc{stroke:var(--ink);stroke-width:1.6;fill:#fff;}
+  .sc-fig .stir{stroke:var(--ink);stroke-width:2;fill:none;}
+  .sc-fig .cover{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:4 3;fill:none;}
+  .sc-fig .bar{fill:var(--accent);}
+  .sc-fig .dimline{stroke:var(--ink-2);stroke-width:1;}
+  .sc-fig text{font-family:var(--mono);fill:var(--ink);}
+  .sc-fig .dim{fill:var(--ink-2);font-size:11px;}
+  .sc-fig .lbl{fill:var(--accent);font-size:12px;font-weight:600;}
+
+  .sc-conv{font-family:var(--mono);font-size:11.5px;color:var(--ink);
+    background:#F0F2ED;border-radius:7px;padding:7px 9px;line-height:1.5;
+    font-variant-numeric:tabular-nums;margin-top:12px;}
+  .sc-note{font-size:11px;color:var(--ink-2);line-height:1.45;}
+
+  .sc-regs{margin-top:26px;}
+  .sc-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:640px){.sc-cards{grid-template-columns:1fr;}}
+  .sc-card{border:1px solid var(--line);border-radius:11px;background:var(--panel);padding:13px 14px;
+    display:flex;flex-direction:column;gap:8px;}
+  .sc-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .sc-card .name{font-size:14px;font-weight:650;}
+  .sc-card .src{font-size:10.5px;color:var(--ink-2);margin-top:2px;line-height:1.3;}
+  .sc-card .thr{font-family:var(--mono);font-size:12px;color:var(--ink-2);}
+  .sc-card .sc-conv{margin-top:0;}
+  .sc-pill{font-size:11.5px;font-weight:650;padding:3px 9px;border-radius:20px;white-space:nowrap;
+    border:1px solid transparent;}
+  .sc-pill[data-s="ok"]{color:var(--ok);background:#E6F1EA;border-color:#CADBD0;}
+  .sc-pill[data-s="warn"]{color:var(--warn);background:#F6EEDD;border-color:#E6D6B4;}
+  .sc-pill[data-s="bad"]{color:var(--bad);background:#F6E4E1;border-color:#E8CAC4;}
+  .sc-pill[data-s="info"]{color:var(--accent);background:var(--accent-soft);border-color:#C4DCD4;}
+
+  .sc-foot{margin-top:22px;font-size:11px;color:var(--ink-2);line-height:1.55;}
+  .sc-err{color:var(--bad);font-size:12.5px;margin-top:8px;font-weight:600;}
+  @media(prefers-reduced-motion:reduce){.sc-inputrow{transition:none;}}
+`;
+
+const fmt = (x, dp = 2) => {
+  if (!isFinite(x)) return "∞";
+  const r = Number(x.toFixed(dp));
+  return r.toLocaleString("en-US", { maximumFractionDigits: dp });
+};
+
+function Pill({ s, children }) {
+  return <span className="sc-pill" data-s={s}>{children}</span>;
+}
+
+// ── 鋼筋規格（CNS 560：標稱直徑 mm、斷面積 cm²、單位重 kg/m）──
+const BARS = [
+  { no: "D10", alt: "#3",  d: 9.53, A: 0.7133, w: 0.560 },
+  { no: "D13", alt: "#4",  d: 12.7, A: 1.267,  w: 0.994 },
+  { no: "D16", alt: "#5",  d: 15.9, A: 1.986,  w: 1.56  },
+  { no: "D19", alt: "#6",  d: 19.1, A: 2.865,  w: 2.25  },
+  { no: "D22", alt: "#7",  d: 22.2, A: 3.871,  w: 3.04  },
+  { no: "D25", alt: "#8",  d: 25.4, A: 5.067,  w: 3.98  },
+  { no: "D29", alt: "#9",  d: 28.7, A: 6.469,  w: 5.08  },
+  { no: "D32", alt: "#10", d: 32.2, A: 8.143,  w: 6.39  },
+  { no: "D36", alt: "#11", d: 35.8, A: 10.07,  w: 7.90  },
+];
+const barByNo = (no) => BARS.find((b) => b.no === no);
+
+const FY = [
+  { g: "SD280",  fy: 2800 },
+  { g: "SD420W", fy: 4200 },
+  { g: "SD550W", fy: 5500 },
+];
+const FC = [210, 280, 350, 420]; // kgf/cm²
+
+// 曝露條件 → 最小保護層（mm），依 表20.5.1.3.1（場鑄非預力）
+const EXPO = [
+  { id: "in",   label: "室內（不接觸土壤）" },
+  { id: "out",  label: "室外或接觸土壤" },
+  { id: "soil", label: "直接澆置於土壤" },
+];
+function coverReq(expo, member, dbmm) {
+  if (expo === "soil") return { v: 75, txt: "澆置於土壤並永久接觸：75 mm" };
+  if (expo === "out")
+    return dbmm >= 19.1
+      ? { v: 50, txt: "曝露於氣候或接觸土壤，D19以上：50 mm" }
+      : { v: 40, txt: "曝露於氣候或接觸土壤，D16以下：40 mm" };
+  return member === "slab"
+    ? { v: 20, txt: "不曝露，版・牆（D36以下）：20 mm" }
+    : { v: 40, txt: "不曝露，梁・柱：40 mm" };
+}
+
+// 常用情境
+const SCENARIOS = [
+  { id: "slab1", label: "樓版 D13@20",       set: { member: "slab", bar: "D13", sS: "20", hS: "15", cover: "20", expo: "in",  use: "main" } },
+  { id: "slab2", label: "屋頂溫度筋 D10@25", set: { member: "slab", bar: "D10", sS: "25", hS: "12", cover: "40", expo: "out", use: "temp" } },
+  { id: "found", label: "基礎版 D16@15",     set: { member: "slab", bar: "D16", sS: "15", hS: "60", cover: "75", expo: "soil", use: "main" } },
+  { id: "beam1", label: "梁 30×60・3-D22",   set: { member: "beam", bar: "D22", bS: "30", hbS: "60", nS: "3", cover: "40", expo: "in", stir: "D10", ssS: "15" } },
+  { id: "beam2", label: "大梁 40×70・4-D25", set: { member: "beam", bar: "D25", bS: "40", hbS: "70", nS: "4", cover: "40", expo: "in", stir: "D13", ssS: "15" } },
+  { id: "col1",  label: "柱 60×60・12-D25",  set: { member: "col",  bar: "D25", cbS: "60", chS: "60", nxS: "4", nyS: "4", cover: "40", expo: "in", stir: "D13", ssS: "10" } },
+];
+
+function RebarCalculator() {
+  const [member, setMember] = useState("slab"); // slab / beam / col
+  const [bar, setBar] = useState("D13");        // 主筋
+  const [stir, setStir] = useState("D10");      // 箍筋
+  const [fy, setFy] = useState(4200);
+  const [fc, setFc] = useState(280);
+  const [expo, setExpo] = useState("in");
+  const [cover, setCover] = useState("20");     // mm
+
+  // 版
+  const [sS, setSS] = useState("20");   // 間距 cm
+  const [hS, setHS] = useState("15");   // 版厚 cm
+  const [use, setUse] = useState("main"); // main 主筋 / temp 溫度筋
+  // 梁
+  const [bS, setBS] = useState("30");
+  const [hbS, setHbS] = useState("60");
+  const [nS, setNS] = useState("3");    // 支數（單層）
+  const [ssS, setSsS] = useState("15"); // 箍筋間距 cm
+  // 柱
+  const [cbS, setCbS] = useState("60");
+  const [chS, setChS] = useState("60");
+  const [nxS, setNxS] = useState("4");  // 寬向每面支數
+  const [nyS, setNyS] = useState("4");  // 深向每面支數
+
+  const [copied, setCopied] = useState(false);
+
+  const applyScenario = (sc) => {
+    const v = sc.set;
+    if (v.member) setMember(v.member);
+    if (v.bar) setBar(v.bar);
+    if (v.stir) setStir(v.stir);
+    if (v.expo) setExpo(v.expo);
+    if (v.cover) setCover(v.cover);
+    if (v.sS) setSS(v.sS); if (v.hS) setHS(v.hS); if (v.use) setUse(v.use);
+    if (v.bS) setBS(v.bS); if (v.hbS) setHbS(v.hbS); if (v.nS) setNS(v.nS); if (v.ssS) setSsS(v.ssS);
+    if (v.cbS) setCbS(v.cbS); if (v.chS) setChS(v.chS); if (v.nxS) setNxS(v.nxS); if (v.nyS) setNyS(v.nyS);
+  };
+
+  const B = barByNo(bar);
+  const ST = barByNo(stir);
+  const cv = parseFloat(cover); // mm
+
+  // ── 計算核心 ──
+  const eff = useMemo(() => {
+    if (!(cv >= 0)) return null;
+    const ccm = cv / 10; // cm
+
+    if (member === "slab") {
+      const s = parseFloat(sS), h = parseFloat(hS);
+      if (!(s > 0) || !(h > 0)) return null;
+      const As = (B.A * 100) / s;             // cm²/m
+      const rho = As / (100 * h);             // 對 Ag
+      const d = h - ccm - B.d / 20;           // cm
+      const wt = (B.w * 100) / s;             // kg/m²（單層單向）
+      const conc = h / 100;                   // m³/m²
+      const clear = s - B.d / 10;             // cm
+      return { s, h, As, rho, d, wt, conc, clear };
+    }
+
+    if (member === "beam") {
+      const b = parseFloat(bS), h = parseFloat(hbS), n = parseInt(nS, 10), ss = parseFloat(ssS);
+      if (!(b > 0) || !(h > 0) || !(n >= 1)) return null;
+      const d = h - ccm - ST.d / 10 - B.d / 20;   // cm
+      const As = n * B.A;
+      const rho = d > 0 ? As / (b * d) : NaN;
+      const asMin = d > 0 ? (Math.max(0.8 * Math.sqrt(fc), 14) / fy) * b * d : NaN;
+      const inner = b - 2 * ccm - 2 * ST.d / 10;  // 箍筋內寬 cm
+      const clear = n >= 2 ? (inner - n * B.d / 10) / (n - 1) : null; // cm
+      const wMain = n * B.w;                       // kg/m
+      const Lst = 2 * (b + h) - 8 * ccm + 20;      // 箍筋單支長概估 cm（含彎鉤）
+      const wStir = ss > 0 ? (Lst / 100) * ST.w * (100 / ss) : NaN; // kg/m
+      const conc = (b * h) / 10000;                // m³/m
+      return { b, h, n, ss, d, As, rho, asMin, clear, inner, wMain, wStir, conc };
+    }
+
+    // 柱
+    const b = parseFloat(cbS), h = parseFloat(chS);
+    const nx = parseInt(nxS, 10), ny = parseInt(nyS, 10), ss = parseFloat(ssS);
+    if (!(b > 0) || !(h > 0) || !(nx >= 2) || !(ny >= 2)) return null;
+    const n = 2 * (nx + ny) - 4;
+    const As = n * B.A;
+    const Ag = b * h;
+    const rho = As / Ag;
+    const spanX = b - 2 * cv / 10 - 2 * ST.d / 10 - B.d / 10; // 角筋心至心可用寬 cm
+    const spanY = h - 2 * cv / 10 - 2 * ST.d / 10 - B.d / 10;
+    const clearX = nx >= 2 ? spanX / (nx - 1) - B.d / 10 : null;
+    const clearY = ny >= 2 ? spanY / (ny - 1) - B.d / 10 : null;
+    const clear = Math.min(clearX, clearY);
+    const wMain = n * B.w;
+    const Lst = 2 * (b + h) - 8 * cv / 10 + 20;
+    const wStir = ss > 0 ? (Lst / 100) * ST.w * (100 / ss) : NaN;
+    const conc = (b * h) / 10000;
+    return { b, h, nx, ny, n, ss, As, Ag, rho, clear, clearX, clearY, wMain, wStir, conc };
+  }, [member, sS, hS, bS, hbS, nS, ssS, cbS, chS, nxS, nyS, bar, stir, fy, fc, cv]);
+
+  const ok = eff && !eff.invalid;
+
+  // ── 規範檢核 ──
+  const checks = useMemo(() => {
+    if (!ok) return null;
+    const list = [];
+    const req = coverReq(expo, member, B.d);
+    const coverCk = {
+      name: "保護層厚度",
+      src: "表20.5.1.3.1（場鑄非預力）",
+      thr: req.txt,
+      s: cv >= req.v ? "ok" : "bad",
+      label: cv >= req.v ? "符合" : "不足",
+      conv: `現設 ${fmt(cv, 0)} mm　需 ≧ ${req.v} mm`,
+    };
+
+    if (member === "slab") {
+      const rhoMin = fy >= 4200 ? Math.max(0.0014, (0.0018 * 4200) / fy) : 0.0020;
+      const asMin = rhoMin * 100 * eff.h;
+      const sMaxByRho = B.A / (rhoMin * eff.h); // cm
+      list.push({
+        name: "最少鋼筋量（收縮溫度）",
+        src: "§7.6.1.1、§24.4.3.2",
+        thr: `ρ ≧ ${rhoMin.toFixed(4)}（fy=${fy} kgf/cm²）`,
+        s: eff.As >= asMin ? "ok" : "bad",
+        label: eff.As >= asMin ? "符合" : "不足",
+        conv: `需 As,min ${fmt(asMin, 2)} cm²/m　現 ${fmt(eff.As, 2)} cm²/m\n此版厚 ${bar} 最大間距 ≒ @${fmt(sMaxByRho, 1)} cm`,
+        note: fy < 4200 ? "SD280 從嚴取 0.0020（沿前版規範，較保守）。" : null,
+      });
+      const sMax = use === "main" ? Math.min(3 * eff.h, 45) : Math.min(5 * eff.h, 45);
+      list.push({
+        name: use === "main" ? "主筋最大間距" : "溫度筋最大間距",
+        src: use === "main" ? "§7.7.2.3" : "§24.4.3.3",
+        thr: use === "main" ? "≦ 3h 且 ≦ 45 cm" : "≦ 5h 且 ≦ 45 cm",
+        s: eff.s <= sMax ? "ok" : "bad",
+        label: eff.s <= sMax ? "符合" : "過大",
+        conv: `此版厚上限 ${fmt(sMax, 1)} cm　現 @${fmt(eff.s, 1)} cm`,
+      });
+      list.push({
+        name: "鋼筋最小淨間距",
+        src: "§25.2.1",
+        thr: "≧ 2.5 cm、≧ db、≧ 4/3 粗粒料粒徑",
+        s: eff.clear >= Math.max(2.5, B.d / 10) ? "ok" : "bad",
+        label: eff.clear >= Math.max(2.5, B.d / 10) ? "符合" : "過密",
+        conv: `淨間距 ${fmt(eff.clear, 1)} cm　需 ≧ ${fmt(Math.max(2.5, B.d / 10), 1)} cm`,
+        note: "粗粒料粒徑另依實際配比確認。",
+      });
+      list.push(coverCk);
+      return list;
+    }
+
+    if (member === "beam") {
+      list.push({
+        name: "最少受拉鋼筋",
+        src: "§9.6.1.2",
+        thr: "As,min = max(0.8√f'c, 14)/fy · bw·d",
+        s: eff.As >= eff.asMin ? "ok" : "bad",
+        label: eff.As >= eff.asMin ? "符合" : "不足",
+        conv: `需 ${fmt(eff.asMin, 2)} cm²　現 ${eff.n}-${bar} = ${fmt(eff.As, 2)} cm²`,
+        note: "若 As 達需求量之 4/3 以上，得依 §9.6.1.3 免除。",
+      });
+      const reqClear = Math.max(2.5, B.d / 10);
+      list.push({
+        name: "主筋最小淨間距",
+        src: "§25.2.1",
+        thr: "≧ 2.5 cm、≧ db、≧ 4/3 粗粒料粒徑",
+        s: eff.clear === null ? "info" : eff.clear >= reqClear ? "ok" : "bad",
+        label: eff.clear === null ? "單支" : eff.clear >= reqClear ? "符合" : "過密",
+        conv: eff.clear === null
+          ? "單支主筋無間距檢核（受撓構材建議至少 2 支）"
+          : `單層淨間距 ${fmt(eff.clear, 1)} cm　需 ≧ ${fmt(reqClear, 1)} cm`,
+        note: eff.clear !== null && eff.clear < reqClear ? "可改多層排置（層間淨距 ≧ 2.5 cm，§25.2.2）或加大梁寬。" : null,
+      });
+      const ssMax = Math.min(eff.d / 2, 60);
+      list.push({
+        name: "箍筋間距（剪力筋）",
+        src: "§9.7.6.2.2",
+        thr: "≦ d/2 且 ≦ 60 cm",
+        s: eff.ss > 0 ? (eff.ss <= ssMax ? "ok" : "bad") : "info",
+        label: eff.ss > 0 ? (eff.ss <= ssMax ? "符合" : "過大") : "—",
+        conv: eff.ss > 0 ? `上限 ${fmt(ssMax, 1)} cm　現 ${stir}@${fmt(eff.ss, 1)}` : "未輸入箍筋間距",
+        note: "Vs 較大時上限減半為 d/4；耐震梁端圍束區另依 §18.3.4 加密。",
+      });
+      list.push(coverCk);
+      return list;
+    }
+
+    // 柱
+    const rhoS = eff.rho < 0.01 ? "bad" : eff.rho <= 0.06 ? "ok" : eff.rho <= 0.08 ? "warn" : "bad";
+    list.push({
+      name: "主筋鋼筋比 ρg",
+      src: "§10.6.1.1（耐震柱另見 §18.4.3.1）",
+      thr: "0.01 ≦ ρg ≦ 0.08（特殊抗彎矩構架柱 ≦ 0.06）",
+      s: rhoS,
+      label: eff.rho < 0.01 ? "不足" : eff.rho <= 0.06 ? "符合" : eff.rho <= 0.08 ? "超過耐震上限" : "過量",
+      conv: `ρg = ${fmt(eff.rho * 100, 2)} %（${eff.n}-${bar}，As ${fmt(eff.As, 1)} cm²）`,
+    });
+    const reqClearC = Math.max(4, (1.5 * B.d) / 10);
+    list.push({
+      name: "主筋最小淨間距",
+      src: "§25.2.3",
+      thr: "≧ 4 cm、≧ 1.5db、≧ 4/3 粗粒料粒徑",
+      s: eff.clear >= reqClearC ? "ok" : "bad",
+      label: eff.clear >= reqClearC ? "符合" : "過密",
+      conv: `寬向 ${fmt(eff.clearX, 1)}／深向 ${fmt(eff.clearY, 1)} cm　需 ≧ ${fmt(reqClearC, 1)} cm`,
+    });
+    const ssMaxC = Math.min((16 * B.d) / 10, (48 * ST.d) / 10, Math.min(eff.b, eff.h));
+    list.push({
+      name: "橫箍筋間距",
+      src: "§25.7.2.1",
+      thr: "≦ 16db、≦ 48d箍、≦ 柱最小邊寬",
+      s: eff.ss > 0 ? (eff.ss <= ssMaxC ? "ok" : "bad") : "info",
+      label: eff.ss > 0 ? (eff.ss <= ssMaxC ? "符合" : "過大") : "—",
+      conv: eff.ss > 0 ? `上限 ${fmt(ssMaxC, 1)} cm　現 ${stir}@${fmt(eff.ss, 1)}` : "未輸入箍筋間距",
+      note: "耐震柱圍束區間距另依 §18.4.5 從嚴（常為 10 cm 以下）。",
+    });
+    list.push(coverCk);
+    return list;
+  }, [ok, eff, member, expo, cv, fy, fc, bar, stir, use]);
+
+  // ── 檢核紀錄 ──
+  const handleCopy = async () => {
+    if (!ok || !checks) return;
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const grade = FY.find((f) => f.fy === fy).g;
+    let head = "";
+    if (member === "slab") {
+      head = `構材：版　厚 ${fmt(eff.h, 0)} cm　${use === "main" ? "主筋" : "溫度筋"} ${bar}@${fmt(eff.s, 0)}\n` +
+        `材料：${grade}　保護層 ${fmt(cv, 0)} mm（${EXPO.find(e=>e.id===expo).label}）\n` +
+        `結果：As ${fmt(eff.As, 2)} cm²/m　ρ ${fmt(eff.rho * 100, 3)} %　d ≒ ${fmt(eff.d, 1)} cm`;
+    } else if (member === "beam") {
+      head = `構材：梁 ${fmt(eff.b, 0)}×${fmt(eff.h, 0)} cm　主筋 ${eff.n}-${bar}　箍筋 ${stir}@${fmt(eff.ss, 0)}\n` +
+        `材料：f'c ${fc} kgf/cm²　${grade}　保護層 ${fmt(cv, 0)} mm（${EXPO.find(e=>e.id===expo).label}）\n` +
+        `結果：As ${fmt(eff.As, 2)} cm²　ρ ${fmt(eff.rho * 100, 2)} %　d ≒ ${fmt(eff.d, 1)} cm`;
+    } else {
+      head = `構材：柱 ${fmt(eff.b, 0)}×${fmt(eff.h, 0)} cm　主筋 ${eff.n}-${bar}（每面 ${eff.nx}×${eff.ny}）　箍筋 ${stir}@${fmt(eff.ss, 0)}\n` +
+        `材料：f'c ${fc} kgf/cm²　${grade}　保護層 ${fmt(cv, 0)} mm（${EXPO.find(e=>e.id===expo).label}）\n` +
+        `結果：As ${fmt(eff.As, 1)} cm²　ρg ${fmt(eff.rho * 100, 2)} %`;
+    }
+    const lines = checks.map((c) => {
+      const mark = c.s === "ok" ? "✓" : c.s === "info" ? "·" : "✗";
+      return `[${mark}] ${c.name}：${(c.conv || "").replace(/\n/g, "；")}　${c.src}`;
+    });
+    const txt =
+      `── 配筋檢核紀錄 ──\n${ts}\n${head}\n\n${lines.join("\n")}\n\n` +
+      `依內政部《建築物混凝土結構設計規範》（112年版，自113.1.1生效）；鋼筋規格依 CNS 560。\n` +
+      `本紀錄僅供快速檢核，設計以簽證文件與最新條文為準。`;
+    try {
+      await navigator.clipboard.writeText(txt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (e) {}
+  };
+
+  // ── 斷面圖幾何 ──
+  const fig = useMemo(() => {
+    if (!ok) return null;
+    const W = 360, H = 250;
+    if (member === "slab") {
+      const showW = Math.max(eff.s * 3.2, 70); // cm
+      const k = Math.min(300 / showW, 120 / eff.h);
+      const w = showW * k, hh = eff.h * k;
+      const x0 = (W - w) / 2, y0 = 150 - hh;
+      const nB = Math.floor(showW / eff.s) + 1;
+      const barR = Math.max((B.d / 10) * k / 2, 3);
+      const by = y0 + hh - (cv / 10) * k - barR;
+      const bars = [];
+      const off = (showW - (nB - 1) * eff.s) / 2;
+      for (let i = 0; i < nB; i++) bars.push(x0 + (off + i * eff.s) * k);
+      return { type: "slab", W, H, k, x0, y0, w, hh, bars, barR, by };
+    }
+    const bw = member === "beam" ? eff.b : eff.b;
+    const bh = member === "beam" ? eff.h : eff.h;
+    const k = Math.min(190 / bw, 190 / bh);
+    const w = bw * k, hh = bh * k;
+    const x0 = 46 + (190 - w) / 2, y0 = 18 + (190 - hh) / 2;
+    const cin = (cv / 10) * k;
+    const stw = (ST.d / 10) * k;
+    const barR = Math.max((B.d / 10) * k / 2, 3.2);
+    let bars = [];
+    if (member === "beam") {
+      const innerL = x0 + cin + stw, innerR = x0 + w - cin - stw;
+      const by = y0 + hh - cin - stw - barR;
+      const n = eff.n;
+      if (n === 1) bars = [{ x: (innerL + innerR) / 2, y: by }];
+      else {
+        const span = innerR - innerL - 2 * barR;
+        for (let i = 0; i < n; i++) bars.push({ x: innerL + barR + (span * i) / (n - 1), y: by });
+      }
+    } else {
+      const innerL = x0 + cin + stw + barR, innerR = x0 + w - cin - stw - barR;
+      const innerT = y0 + cin + stw + barR, innerB = y0 + hh - cin - stw - barR;
+      const { nx, ny } = eff;
+      for (let i = 0; i < nx; i++) {
+        const x = nx === 1 ? (innerL + innerR) / 2 : innerL + ((innerR - innerL) * i) / (nx - 1);
+        bars.push({ x, y: innerT }); bars.push({ x, y: innerB });
+      }
+      for (let j = 1; j < ny - 1; j++) {
+        const y = innerT + ((innerB - innerT) * j) / (ny - 1);
+        bars.push({ x: innerL, y }); bars.push({ x: innerR, y });
+      }
+    }
+    return { type: member, W, H, k, x0, y0, w, hh, cin, stw, barR, bars };
+  }, [ok, eff, member, cv, bar, stir]);
+
+  const grade = FY.find((f) => f.fy === fy).g;
+
+  return (
+    <div className="sc-wrap">
+      <style>{CSS}</style>
+      <div className="sc-shell">
+        <div className="sc-head">
+          <div className="sc-headL">
+            <h1 className="sc-title">鋼筋混凝土計算機</h1>
+            <span className="sc-sub">RC Rebar · 配筋 · 檢核 · 數量</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="sc-seg">
+              <button data-on={member === "slab"} onClick={() => { setMember("slab"); if (cv > 40 && expo === "in") setCover("20"); }}>版</button>
+              <button data-on={member === "beam"} onClick={() => { setMember("beam"); if (expo === "in" && cv < 40) setCover("40"); }}>梁</button>
+              <button data-on={member === "col"} onClick={() => { setMember("col"); if (expo === "in" && cv < 40) setCover("40"); }}>柱</button>
+            </div>
+            <a className="sc-back" href="../">← 工具箱</a>
+          </div>
+        </div>
+        <div className="sc-rule" />
+
+        <div className="sc-scen">
+          <span className="sc-scenLab">常用情境</span>
+          {SCENARIOS.map((s) => (
+            <button key={s.id} className="sc-chip sc-chip-scen" onClick={() => applyScenario(s)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="sc-grid">
+          {/* 輸入 */}
+          <div className="sc-panel">
+            <p className="sc-eyebrow">輸入 · Input</p>
+
+            <div className="sc-field">
+              <div className="sc-label"><span>主筋號數</span><small>{B.alt} · ø{B.d}mm · {B.A}cm²</small></div>
+              <div className="sc-presets" style={{ marginTop: 0 }}>
+                {BARS.map((b) => (
+                  <button key={b.no} className="sc-chip" data-on={bar === b.no}
+                    onClick={() => setBar(b.no)} title={`${b.alt}　${b.d} mm　${b.w} kg/m`}>{b.no}</button>
+                ))}
+              </div>
+            </div>
+
+            {member === "slab" ? (
+              <>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>間距</span><small>spacing</small></div>
+                    <div className="sc-inputrow">
+                      <span className="sc-pre">@</span>
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={sS} onChange={(e) => setSS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>版厚</span><small>h</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={hS} onChange={(e) => setHS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-field">
+                  <div className="sc-label"><span>鋼筋用途</span></div>
+                  <div className="sc-seg">
+                    <button data-on={use === "main"} onClick={() => setUse("main")}>主筋</button>
+                    <button data-on={use === "temp"} onClick={() => setUse("temp")}>溫度筋</button>
+                  </div>
+                </div>
+              </>
+            ) : member === "beam" ? (
+              <>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>梁寬 b</span></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={bS} onChange={(e) => setBS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>梁深 h</span></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={hbS} onChange={(e) => setHbS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>主筋支數</span><small>單層</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="numeric" min="1" step="1"
+                        value={nS} onChange={(e) => setNS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">支</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>箍筋</span></div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                      <div className="sc-seg">
+                        <button data-on={stir === "D10"} onClick={() => setStir("D10")}>D10</button>
+                        <button data-on={stir === "D13"} onClick={() => setStir("D13")}>D13</button>
+                      </div>
+                      <div className="sc-inputrow" style={{ flex: 1 }}>
+                        <span className="sc-pre">@</span>
+                        <input className="sc-input" style={{ fontSize: 16, padding: "8px 8px" }} type="number" inputMode="decimal"
+                          value={ssS} onChange={(e) => setSsS(e.target.value)} placeholder="0" />
+                        <span className="sc-unit">cm</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>柱寬 b</span></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={cbS} onChange={(e) => setCbS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>柱深 h</span></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={chS} onChange={(e) => setChS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>寬向每面</span><small>含角筋</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="numeric" min="2" step="1"
+                        value={nxS} onChange={(e) => setNxS(e.target.value)} placeholder="2" />
+                      <span className="sc-unit">支</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>深向每面</span><small>含角筋</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="numeric" min="2" step="1"
+                        value={nyS} onChange={(e) => setNyS(e.target.value)} placeholder="2" />
+                      <span className="sc-unit">支</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-field">
+                  <div className="sc-label"><span>箍筋</span></div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                    <div className="sc-seg">
+                      <button data-on={stir === "D10"} onClick={() => setStir("D10")}>D10</button>
+                      <button data-on={stir === "D13"} onClick={() => setStir("D13")}>D13</button>
+                    </div>
+                    <div className="sc-inputrow" style={{ flex: 1 }}>
+                      <span className="sc-pre">@</span>
+                      <input className="sc-input" style={{ fontSize: 16, padding: "8px 8px" }} type="number" inputMode="decimal"
+                        value={ssS} onChange={(e) => setSsS(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">cm</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="sc-field">
+              <div className="sc-label"><span>保護層</span><small>clear cover</small></div>
+              <div style={{ display: "flex", gap: 6, alignItems: "stretch", flexWrap: "wrap" }}>
+                <div className="sc-inputrow" style={{ flex: "1 1 110px" }}>
+                  <input className="sc-input" style={{ fontSize: 16, padding: "8px 10px" }} type="number" inputMode="decimal"
+                    value={cover} onChange={(e) => setCover(e.target.value)} placeholder="0" />
+                  <span className="sc-unit">mm</span>
+                </div>
+                <div className="sc-presets" style={{ marginTop: 0 }}>
+                  {[20, 40, 50, 75].map((c) => (
+                    <button key={c} className="sc-chip" data-on={cv === c}
+                      onClick={() => setCover(String(c))}>{c}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="sc-presets">
+                {EXPO.map((e) => (
+                  <button key={e.id} className="sc-chip" style={{ fontFamily: "var(--sans)" }}
+                    data-on={expo === e.id} onClick={() => setExpo(e.id)}>{e.label}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="sc-two">
+              <div className="sc-field">
+                <div className="sc-label"><span>鋼筋 fy</span><small>{fy} kgf/cm²</small></div>
+                <div className="sc-presets" style={{ marginTop: 0 }}>
+                  {FY.map((f) => (
+                    <button key={f.g} className="sc-chip" data-on={fy === f.fy}
+                      onClick={() => setFy(f.fy)}>{f.g}</button>
+                  ))}
+                </div>
+              </div>
+              {member !== "slab" && (
+                <div className="sc-field">
+                  <div className="sc-label"><span>混凝土 f'c</span><small>kgf/cm²</small></div>
+                  <div className="sc-presets" style={{ marginTop: 0 }}>
+                    {FC.map((f) => (
+                      <button key={f} className="sc-chip" data-on={fc === f}
+                        onClick={() => setFc(f)}>{f}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {member === "beam" && eff && eff.n === 1 && (
+              <p className="sc-err">受撓構材主筋建議至少 2 支（配合箍筋角隅）。</p>
+            )}
+            {member !== "slab" && eff && eff.d <= 0 && (
+              <p className="sc-err">尺寸與保護層不合理，有效深度為負，請確認輸入。</p>
+            )}
+          </div>
+
+          {/* 結果 + 斷面圖 */}
+          <div className="sc-panel">
+            <div className="sc-eyebrowRow">
+              <p className="sc-eyebrow" style={{ margin: 0 }}>結果 · Output</p>
+              <button className="sc-copy" data-done={copied} onClick={handleCopy} disabled={!ok}>
+                {copied ? "已複製 ✓" : "複製檢核紀錄"}
+              </button>
+            </div>
+
+            <div className="sc-readouts">
+              <div className="sc-ro">
+                <div className="k">鋼筋量 As</div>
+                <div className="v">{ok ? fmt(eff.As, member === "col" ? 1 : 2) : "—"}</div>
+                <div className="u">{member === "slab" ? "cm²/m" : "cm²"}</div>
+                <div className="sub">{ok && member !== "slab" ? `${eff.n}-${bar}` : ok ? `${bar}@${fmt(eff.s, 0)}` : ""}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">{member === "col" ? "鋼筋比 ρg" : "鋼筋比 ρ"}</div>
+                <div className="v">{ok && isFinite(eff.rho) ? fmt(eff.rho * 100, member === "slab" ? 3 : 2) : "—"}</div>
+                <div className="u">%</div>
+                <div className="sub">{member === "slab" ? "對全斷面 Ag" : member === "beam" ? "對 bw·d" : "對 Ag"}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">{member === "col" ? "總支數" : "有效深度 d"}</div>
+                <div className="v">{ok ? (member === "col" ? eff.n : fmt(eff.d, 1)) : "—"}</div>
+                <div className="u">{member === "col" ? "支" : "cm"}</div>
+                <div className="sub">{member === "col" ? (ok ? `每面 ${eff.nx}×${eff.ny}` : "") : "估算值"}</div>
+              </div>
+            </div>
+
+            {ok && (
+              <div className="sc-result">
+                <span className="lab">數量估算{member === "slab" ? "（每 m²，單層單向）" : "（每 m）"}</span>
+                <span className="val">
+                  {member === "slab" ? `${fmt(eff.wt, 1)} kg` : `${fmt(eff.wMain + (isFinite(eff.wStir) ? eff.wStir : 0), 1)} kg`}
+                  <span className="sub2">
+                    {member === "slab"
+                      ? `混凝土 ${fmt(eff.conc, 3)} m³/m²`
+                      : `主筋 ${fmt(eff.wMain, 1)}＋箍筋 ${isFinite(eff.wStir) ? fmt(eff.wStir, 1) : "—"} kg/m　混凝土 ${fmt(eff.conc, 3)} m³/m`}
+                  </span>
+                </span>
+              </div>
+            )}
+
+            <div className="sc-figwrap">
+              {fig ? (
+                <svg className="sc-fig" viewBox={`0 0 ${fig.W} ${fig.H}`} role="img"
+                  aria-label={`${member === "slab" ? "版" : member === "beam" ? "梁" : "柱"}斷面示意圖`}>
+                  {fig.type === "slab" ? (
+                    <g>
+                      <rect className="conc" x={fig.x0} y={fig.y0} width={fig.w} height={fig.hh} />
+                      <line className="cover" x1={fig.x0} x2={fig.x0 + fig.w}
+                        y1={fig.y0 + fig.hh - (cv / 10) * fig.k} y2={fig.y0 + fig.hh - (cv / 10) * fig.k} />
+                      {fig.bars.map((x, i) => (
+                        <circle key={i} className="bar" cx={x} cy={fig.by} r={fig.barR} />
+                      ))}
+                      {/* 間距標註 */}
+                      {fig.bars.length >= 2 && (
+                        <g>
+                          <line className="dimline" x1={fig.bars[0]} x2={fig.bars[1]} y1={fig.y0 - 12} y2={fig.y0 - 12} />
+                          <line className="dimline" x1={fig.bars[0]} x2={fig.bars[0]} y1={fig.y0 - 17} y2={fig.y0 - 7} />
+                          <line className="dimline" x1={fig.bars[1]} x2={fig.bars[1]} y1={fig.y0 - 17} y2={fig.y0 - 7} />
+                          <text className="lbl" x={(fig.bars[0] + fig.bars[1]) / 2} y={fig.y0 - 18} textAnchor="middle">@{fmt(eff.s, 0)}</text>
+                        </g>
+                      )}
+                      {/* 版厚 */}
+                      <line className="dimline" x1={fig.x0 - 12} x2={fig.x0 - 12} y1={fig.y0} y2={fig.y0 + fig.hh} />
+                      <text className="dim" x={fig.x0 - 18} y={fig.y0 + fig.hh / 2} textAnchor="end" dominantBaseline="middle">h {fmt(eff.h, 0)}</text>
+                      {/* 保護層 */}
+                      <line className="dimline" x1={fig.x0 + fig.w + 12} x2={fig.x0 + fig.w + 12}
+                        y1={fig.y0 + fig.hh - (cv / 10) * fig.k} y2={fig.y0 + fig.hh} />
+                      <text className="dim" x={fig.x0 + fig.w + 18} y={fig.y0 + fig.hh - ((cv / 10) * fig.k) / 2} dominantBaseline="middle">{fmt(cv, 0)}mm</text>
+                      <text className="dim" x={fig.W / 2} y={fig.y0 + fig.hh + 26} textAnchor="middle">
+                        版斷面（每 m 寬 {fmt(100 / eff.s, 1)} 支）
+                      </text>
+                    </g>
+                  ) : (
+                    <g>
+                      <rect className="conc" x={fig.x0} y={fig.y0} width={fig.w} height={fig.hh} />
+                      <rect className="stir" x={fig.x0 + fig.cin} y={fig.y0 + fig.cin}
+                        width={fig.w - 2 * fig.cin} height={fig.hh - 2 * fig.cin}
+                        rx={Math.max(fig.stw * 2, 4)} />
+                      {fig.bars.map((b, i) => (
+                        <circle key={i} className="bar" cx={b.x} cy={b.y} r={fig.barR} />
+                      ))}
+                      {/* b 標註 */}
+                      <line className="dimline" x1={fig.x0} x2={fig.x0 + fig.w} y1={fig.y0 + fig.hh + 14} y2={fig.y0 + fig.hh + 14} />
+                      <line className="dimline" x1={fig.x0} x2={fig.x0} y1={fig.y0 + fig.hh + 9} y2={fig.y0 + fig.hh + 19} />
+                      <line className="dimline" x1={fig.x0 + fig.w} x2={fig.x0 + fig.w} y1={fig.y0 + fig.hh + 9} y2={fig.y0 + fig.hh + 19} />
+                      <text className="dim" x={fig.x0 + fig.w / 2} y={fig.y0 + fig.hh + 30} textAnchor="middle">b {fmt(eff.b, 0)}</text>
+                      {/* h 標註 */}
+                      <line className="dimline" x1={fig.x0 - 14} x2={fig.x0 - 14} y1={fig.y0} y2={fig.y0 + fig.hh} />
+                      <text className="dim" x={fig.x0 - 20} y={fig.y0 + fig.hh / 2} textAnchor="end" dominantBaseline="middle">h {fmt(eff.h, 0)}</text>
+                      {/* 保護層 */}
+                      <text className="dim" x={fig.x0 + fig.w + 8} y={fig.y0 + fig.cin + 4}>保護層 {fmt(cv, 0)}mm</text>
+                      <text className="lbl" x={fig.x0 + fig.w + 8} y={fig.y0 + fig.hh - 6}>
+                        {member === "beam" ? `${eff.n}-${bar}` : `${eff.n}-${bar}`}
+                      </text>
+                      <text className="dim" x={fig.x0 + fig.w + 8} y={fig.y0 + fig.hh + 10}>{stir}@{fmt(eff.ss, 0)}</text>
+                    </g>
+                  )}
+                </svg>
+              ) : (
+                <svg className="sc-fig" viewBox="0 0 360 200" aria-hidden="true">
+                  <line className="grid" x1="30" y1="160" x2="330" y2="160" />
+                  <text x="180" y="95" textAnchor="middle" className="dim">輸入尺寸與配筋以顯示斷面</text>
+                </svg>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 規範檢核 */}
+        <div className="sc-regs">
+          <p className="sc-eyebrow">規範檢核 · Code Check（內政部《建築物混凝土結構設計規範》112年版）</p>
+          <div className="sc-cards">
+            {(checks || [null, null, null, null]).map((c, i) =>
+              c ? (
+                <div className="sc-card" key={i}>
+                  <div className="top">
+                    <div>
+                      <div className="name">{c.name}</div>
+                      <div className="src">{c.src}</div>
+                    </div>
+                    <Pill s={c.s}>{c.label}</Pill>
+                  </div>
+                  <div className="thr">{c.thr}</div>
+                  {c.conv && <div className="sc-conv" style={{ whiteSpace: "pre-line" }}>{c.conv}</div>}
+                  {c.note && <div className="sc-note">{c.note}</div>}
+                </div>
+              ) : (
+                <div className="sc-card" key={i}>
+                  <div className="top"><div className="name" style={{ color: "var(--ink-2)" }}>—</div><Pill s="info">—</Pill></div>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+
+        <p className="sc-foot">
+          鋼筋標稱直徑、斷面積與單位重依 CNS 560；材料強度採規範主列之公制單位（kgf/cm²）。
+          檢核條號依內政部《建築物混凝土結構設計規範》（112.8.10 修正發布，自 113.1.1 生效）；
+          淨間距檢核未計入粗粒料 4/3 倍粒徑條件，請依實際配比確認。
+          箍筋重量為含彎鉤之概估值。本工具僅供快速檢核與紀錄，
+          實際設計、耐震細部與查驗請以簽證文件、最新條文及主管機關認定為準。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<RebarCalculator />);
+
+  </script>
+</body>
+</html>

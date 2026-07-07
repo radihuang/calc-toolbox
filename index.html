@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>計算工具箱 · Site Calc Toolbox</title>
+  <meta name="description" content="工地與設計常用的計算小工具：坡度計算機、鋼筋混凝土計算機。即算即檢核，附法規條文出處。純 HTML，免安裝。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='10' width='24' height='18' rx='2' fill='none' stroke='%231E241F' stroke-width='2.5'/><path d='M10 10 V6 h12 v4' fill='none' stroke='%231C6E63' stroke-width='2.5'/></svg>" />
+  <style>
+    :root{
+      --paper:#EBEEE9; --panel:#F8F9F6; --ink:#1E241F; --ink-2:#5C635A;
+      --line:#CDD3C9; --accent:#1C6E63; --accent-soft:#DCEAE5; --grid:#DCE1D8;
+      --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+      --sans:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+    }
+    *{box-sizing:border-box;}
+    html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+      font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+    .shell{max-width:860px;margin:0 auto;padding:26px 22px 40px;}
+    .head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+    h1{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0;}
+    .sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+    .rule{height:1px;background:var(--line);margin:14px 0 8px;}
+    .lede{font-size:13px;color:var(--ink-2);line-height:1.7;margin:0 0 22px;max-width:56ch;}
+
+    .eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+      color:var(--ink-2);font-weight:600;margin:0 0 12px;}
+    .tools{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    @media(max-width:640px){.tools{grid-template-columns:1fr;}}
+
+    .tool{display:flex;flex-direction:column;gap:10px;background:var(--panel);
+      border:1px solid var(--line);border-radius:12px;padding:16px 16px 15px;
+      text-decoration:none;color:var(--ink);
+      transition:border-color .15s, box-shadow .15s, transform .15s;}
+    .tool:hover{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+    .tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+    @media(prefers-reduced-motion:no-preference){
+      .tool:hover{transform:translateY(-1px);}
+    }
+    .glyph{width:100%;height:96px;border:1px solid var(--line);border-radius:9px;
+      background:#fff;display:block;}
+    .glyph .grid{stroke:var(--grid);stroke-width:1;}
+    .glyph .ink{stroke:var(--ink);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+    .glyph .acc{stroke:var(--accent);fill:none;stroke-width:2.6;stroke-linecap:round;}
+    .glyph .accf{fill:var(--accent);}
+    .glyph .cover{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:4 3;fill:none;}
+    .trow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+    .tname{font-size:15.5px;font-weight:650;}
+    .tarrow{font-family:var(--mono);font-size:13px;color:var(--accent);}
+    .tdesc{font-size:12.5px;color:var(--ink-2);line-height:1.6;margin:0;}
+    .tmeta{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);
+      border-top:1px solid var(--line);padding-top:9px;line-height:1.5;}
+
+    .foot{margin-top:26px;font-size:11px;color:var(--ink-2);line-height:1.6;}
+    .foot a{color:var(--ink-2);}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="head">
+      <h1>計算工具箱</h1>
+      <span class="sub">Site Calc Toolbox · 工地 · 設計 · 檢核</span>
+    </div>
+    <div class="rule"></div>
+    <p class="lede">
+      工地與設計案頭常用的計算小工具。即算即檢核，附法規與規範條文出處，
+      算完可直接複製成檢核紀錄。純 HTML 單檔，免安裝、離線可用。
+    </p>
+
+    <p class="eyebrow">工具 · Tools</p>
+    <div class="tools">
+
+      <a class="tool" href="slope/">
+        <svg class="glyph" viewBox="0 0 300 96" aria-hidden="true">
+          <line class="grid" x1="24" y1="30" x2="276" y2="30"/>
+          <line class="grid" x1="24" y1="52" x2="276" y2="52"/>
+          <line class="ink" x1="36" y1="74" x2="240" y2="74"/>
+          <line class="ink" x1="240" y1="74" x2="240" y2="22"/>
+          <line class="acc" x1="36" y1="74" x2="240" y2="22"/>
+          <path class="ink" d="M76 74 A40 40 0 0 0 72 64" stroke-width="1.6"/>
+          <text x="84" y="66" font-family="var(--mono)" font-size="11" fill="var(--accent)" font-weight="600">14°</text>
+        </svg>
+        <div class="trow">
+          <span class="tname">坡度計算機</span>
+          <span class="tarrow">→</span>
+        </div>
+        <p class="tdesc">長度與高差互算坡度、斜率、角度；洩水、車道、無障礙法規即時提醒，附滑雪難度分級。</p>
+        <div class="tmeta">建築技術規則 §61 · 無障礙設施設計規範 206</div>
+      </a>
+
+      <a class="tool" href="rebar/">
+        <svg class="glyph" viewBox="0 0 300 96" aria-hidden="true">
+          <line class="grid" x1="24" y1="30" x2="276" y2="30"/>
+          <line class="grid" x1="24" y1="52" x2="276" y2="52"/>
+          <rect class="ink" x="112" y="12" width="76" height="72" />
+          <rect class="ink" x="122" y="22" width="56" height="52" rx="7" stroke-width="1.6"/>
+          <circle class="accf" cx="130" cy="66" r="5"/>
+          <circle class="accf" cx="150" cy="66" r="5"/>
+          <circle class="accf" cx="170" cy="66" r="5"/>
+          <circle class="accf" cx="130" cy="30" r="4"/>
+          <circle class="accf" cx="170" cy="30" r="4"/>
+          <line class="cover" x1="200" y1="74" x2="200" y2="84"/>
+          <text x="206" y="82" font-family="var(--mono)" font-size="10" fill="var(--ink-2)">40mm</text>
+          <text x="206" y="34" font-family="var(--mono)" font-size="11" fill="var(--accent)" font-weight="600">3-D22</text>
+        </svg>
+        <div class="trow">
+          <span class="tname">鋼筋混凝土計算機</span>
+          <span class="tarrow">→</span>
+        </div>
+        <p class="tdesc">號數、間距、尺寸算鋼筋量與數量；版、梁、柱逐項檢核最少鋼筋、間距與保護層，一鍵複製檢核紀錄。</p>
+        <div class="tmeta">建築物混凝土結構設計規範（112年版）· CNS 560</div>
+      </a>
+
+    </div>
+
+    <p class="foot">
+      各工具之法規數值為現行常見規定之整理，僅供快速研判與紀錄；
+      實際設計與查驗請以最新條文、簽證文件與主管機關認定為準。
+      原始碼：<a href="https://github.com/radihuang" rel="noopener">github.com/radihuang</a>
+    </p>
+  </div>
+</body>
+</html>

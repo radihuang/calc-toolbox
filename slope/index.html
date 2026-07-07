@@ -14,10 +14,10 @@
       color: #5C635A; text-align: center; padding: 80px 20px; font-size: 14px; }
   </style>
 
-  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build） -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build）。版本已釘死，避免 Babel 8 automatic runtime 造成空白頁 -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 </head>
 <body>
   <div id="root"><div id="boot">載入中…</div></div>

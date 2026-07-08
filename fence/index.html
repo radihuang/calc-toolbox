@@ -127,11 +127,12 @@ const CSS = `
   .sc-brk .row.muted .val{color:var(--ink-2);}
   .sc-brk .row.tot{font-weight:700;background:var(--accent-soft);}
 
-  .sc-figwrap{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:6px 6px 2px;overflow:hidden;}
-  .sc-figrow{display:flex;gap:10px;align-items:flex-start;}
-  .sc-figcol{flex:1 1 0;min-width:0;}
+  .sc-figwrap{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:10px 10px 6px;overflow-x:auto;}
+  .sc-figrow{display:flex;gap:28px;align-items:flex-start;justify-content:center;flex-wrap:wrap;}
+  .sc-figcol{display:flex;flex-direction:column;align-items:center;}
   .sc-figcap{font-size:10px;letter-spacing:.06em;color:var(--ink-2);text-align:center;margin-top:2px;}
-  .sc-fig{display:block;width:100%;height:auto;}
+  .sc-fig{display:block;height:180px;width:auto;}
+  @media(max-width:640px){.sc-figrow{flex-direction:column;align-items:center;}}
   .sc-fig .grid{stroke:var(--grid);stroke-width:1;}
   .sc-fig .panel{fill:#E4EAE4;stroke:var(--ink);stroke-width:1.6;}
   .sc-fig .base{fill:var(--ink-2);opacity:.85;}
@@ -333,8 +334,8 @@ function FenceCalculator() {
     const corrWpx = Math.min(num(corrWidth) * pxPerM, 170);
     const outerX = hasCorr ? fenceX + corrWpx : fenceX + thickPx + 30;
     const canopyY = fig.y1 + (fig.y2 - fig.y1) * 0.14;
-    const W = Math.max(outerX + 46, fenceX + thickPx + 70);
-    const H = fig.y2 + 30;
+    const W = Math.max(outerX + 30, fenceX + thickPx + 60);
+    const H = fig.H; // 與立面共用畫布高度，確保兩圖比例尺完全一致
     return { W, H, fenceX, thickPx, hasCorr, outerX, canopyY };
   })();
 
@@ -605,21 +606,15 @@ function FenceCalculator() {
                 {/* 安全走廊（有設置才顯示） */}
                 {sec.hasCorr && (
                   <g>
-                    <line className="post" x1={sec.fenceX} y1={sec.canopyY} x2={sec.outerX} y2={sec.canopyY} strokeWidth="2.4" />
-                    <line className="post" x1={sec.outerX} y1={sec.canopyY} x2={sec.outerX} y2={fig.y2} strokeWidth="1.6" />
-                    <line className="dimline" x1={sec.fenceX} y1={fig.y2 + 10} x2={sec.outerX} y2={fig.y2 + 10} />
-                    <line className="dimline" x1={sec.fenceX} y1={fig.y2 + 6} x2={sec.fenceX} y2={fig.y2 + 14} />
-                    <line className="dimline" x1={sec.outerX} y1={fig.y2 + 6} x2={sec.outerX} y2={fig.y2 + 14} />
-                    <text className="dim" x={(sec.fenceX + sec.outerX) / 2} y={fig.y2 + 26} textAnchor="middle">
+                    <text className="lbl" x={(sec.fenceX + sec.outerX) / 2} y={sec.canopyY - 8} textAnchor="middle">
                       安全走廊 {fmt(num(corrWidth))}m
                     </text>
+                    <line className="post" x1={sec.fenceX} y1={sec.canopyY} x2={sec.outerX} y2={sec.canopyY} strokeWidth="2.4" />
+                    <line className="post" x1={sec.outerX} y1={sec.canopyY} x2={sec.outerX} y2={fig.y2} strokeWidth="1.6" />
                   </g>
                 )}
-                <text className="lbl" x={sec.fenceX + sec.thickPx / 2 + 6} y={(fig.baseTop + fig.y2) / 2 + 4}>
-                  防溢座厚 {fmt(BASE_THICK_M * 100, 0)}cm
-                </text>
               </svg>
-              <p className="sc-figcap">剖面{sec.hasCorr ? "（含安全走廊）" : ""}</p>
+              <p className="sc-figcap">剖面</p>
               </div>
               </div>
             </div>

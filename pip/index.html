@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>預壘樁數量計算機 · PIP Quantity Calculator</title>
+  <meta name="description" content="輸入樁徑、樁長、支數與間距，即時估算預壘樁的水泥砂漿（包）、沙、鋼筋（噸）與壓梁混凝土數量。支援單一樁徑與 D50／D70 混合，係數透明可調，可一鍵複製備料清單。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='8' width='22' height='7' rx='2' fill='none' stroke='%231E241F' stroke-width='2.5'/><circle cx='11' cy='23' r='4' fill='none' stroke='%231C6E63' stroke-width='2.5'/><circle cx='21' cy='23' r='4' fill='none' stroke='%231C6E63' stroke-width='2.5'/></svg>" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #EBEEE9; }
+    #root { min-height: 100vh; }
+    #boot { font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+      color: #5C635A; text-align: center; padding: 80px 20px; font-size: 14px; }
+  </style>
+
+  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build）。版本釘死，與工具箱其他工具一致。 -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"><div id="boot">載入中…</div></div>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+
+// 預壘樁（排樁擋土）數量計算機
+// 計算模型與係數由實際施工料單反推。
+// 每米樁材料係數（水泥包、沙、主筋支數、箍筋單圈長）與壓梁斷面依樁徑而定；
+// 搭接／餘料／損耗以係數表示、預設帶入料單反推值、可於下方調整。
+
+const CSS = `
+  .sc-wrap{
+    --paper:#EBEEE9; --panel:#F8F9F6; --ink:#1E241F; --ink-2:#5C635A;
+    --line:#CDD3C9; --accent:#1C6E63; --accent-soft:#DCEAE5;
+    --ok:#2E7D4F; --warn:#B0781A; --bad:#AF3A2E;
+    --grid:#DCE1D8;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    min-height:100%; padding:22px; box-sizing:border-box;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sc-wrap *{box-sizing:border-box;}
+  .sc-shell{max-width:860px;margin:0 auto;}
+  .sc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    justify-content:space-between;margin-bottom:4px;}
+  .sc-headL{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .sc-title{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0;}
+  .sc-sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+  .sc-back{font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:4px 10px;background:#fff;transition:.12s;white-space:nowrap;}
+  .sc-back:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-rule{height:1px;background:var(--line);margin:14px 0 18px;}
+  .sc-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);
+    font-weight:600;margin:0 0 10px;}
+
+  .sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:660px){.sc-grid{grid-template-columns:1fr;}}
+
+  .sc-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;}
+
+  .sc-field{margin-bottom:14px;}
+  .sc-field:last-child{margin-bottom:0;}
+  .sc-label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;font-weight:600;margin-bottom:6px;}
+  .sc-label small{font-weight:400;color:var(--ink-2);font-family:var(--mono);font-size:11px;}
+  .sc-inputrow{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:9px;
+    overflow:hidden;background:#fff;transition:border-color .15s,box-shadow .15s;}
+  .sc-inputrow:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .sc-pre{display:flex;align-items:center;padding:0 4px 0 12px;font-family:var(--mono);
+    font-size:16px;color:var(--ink-2);}
+  .sc-input{flex:1;min-width:0;border:0;outline:0;background:transparent;
+    font-family:var(--mono);font-size:19px;padding:10px 12px;color:var(--ink);width:100%;}
+  .sc-unit{display:flex;align-items:center;padding:0 12px;font-family:var(--mono);
+    font-size:12px;color:var(--ink-2);background:#F0F2ED;border-left:1px solid var(--line);white-space:nowrap;}
+  .sc-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  .sc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;flex-wrap:wrap;}
+  .sc-seg button{border:0;background:transparent;font-family:var(--sans);font-size:12px;
+    padding:7px 11px;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
+  .sc-seg button+button{border-left:1px solid var(--line);}
+  .sc-seg button[data-on="true"]{background:var(--ink);color:#fff;font-weight:600;}
+  .sc-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+
+  .sc-scen{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .sc-scenLab{font-size:11px;letter-spacing:.1em;color:var(--ink-2);font-weight:600;}
+  .sc-chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:6px 12px;
+    font-size:12px;font-family:var(--sans);color:var(--ink-2);cursor:pointer;transition:.12s;}
+  .sc-chip:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-chip[data-on="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  /* 樁群表（混合模式） */
+  .sc-grp{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;margin-bottom:10px;}
+  .sc-grp-h,.sc-grp-r{display:grid;grid-template-columns:74px 1fr 1fr 1fr 30px;gap:0;align-items:stretch;}
+  .sc-grp-h{background:#F0F2ED;border-bottom:1px solid var(--line);}
+  .sc-grp-h span{font-size:10.5px;color:var(--ink-2);font-weight:600;padding:7px 8px;text-align:center;letter-spacing:.04em;}
+  .sc-grp-r+.sc-grp-r{border-top:1px solid var(--line);}
+  .sc-grp-r select,.sc-grp-r input{border:0;outline:0;background:transparent;width:100%;
+    font-family:var(--mono);font-size:15px;padding:9px 8px;color:var(--ink);text-align:center;}
+  .sc-grp-r select{font-family:var(--sans);cursor:pointer;-webkit-appearance:none;appearance:none;}
+  .sc-grp-r input:focus,.sc-grp-r select:focus{background:var(--accent-soft);}
+  .sc-grp-cell{border-left:1px solid var(--line);display:flex;}
+  .sc-grp-cell:first-child{border-left:0;}
+  .sc-del{border:0;background:transparent;color:var(--ink-2);cursor:pointer;font-size:16px;line-height:1;
+    display:flex;align-items:center;justify-content:center;}
+  .sc-del:hover{color:var(--bad);}
+  .sc-add{width:100%;border:1px dashed var(--line);background:#fff;border-radius:9px;padding:9px;
+    font-family:var(--sans);font-size:12.5px;color:var(--ink-2);cursor:pointer;transition:.12s;}
+  .sc-add:hover{border-color:var(--accent);color:var(--accent);}
+
+  .sc-eyebrowRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;}
+  .sc-copy{border:1px solid var(--line);background:#fff;border-radius:7px;font-family:var(--sans);
+    font-size:11.5px;color:var(--ink-2);padding:5px 11px;cursor:pointer;transition:.12s;}
+  .sc-copy:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .sc-copy:disabled{opacity:.45;cursor:default;}
+  .sc-copy[data-done="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-readouts{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:2px;}
+  .sc-ro{background:var(--panel);padding:13px 12px;text-align:center;}
+  .sc-ro .k{font-size:10.5px;letter-spacing:.06em;color:var(--ink-2);font-weight:600;}
+  .sc-ro .v{font-family:var(--mono);font-size:25px;font-weight:600;letter-spacing:-.02em;
+    line-height:1.15;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .sc-ro .u{font-family:var(--mono);font-size:12px;color:var(--ink-2);}
+  .sc-ro .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-top:3px;}
+
+  .sc-figwrap{margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:6px 6px 2px;overflow:hidden;}
+  .sc-fig{display:block;width:100%;height:auto;}
+  .sc-fig .conc{stroke:var(--ink);stroke-width:1.4;fill:#fff;}
+  .sc-fig .cap{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.4;}
+  .sc-fig .pile{fill:#fff;stroke:var(--ink);stroke-width:1.6;}
+  .sc-fig .pilef{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.6;}
+  .sc-fig .dimline{stroke:var(--ink-2);stroke-width:1;}
+  .sc-fig text{font-family:var(--mono);fill:var(--ink);}
+  .sc-fig .dim{fill:var(--ink-2);font-size:11px;}
+  .sc-fig .lbl{fill:var(--accent);font-size:12px;font-weight:600;}
+
+  /* 明細表 */
+  .sc-detail{margin-top:20px;}
+  .sc-tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:11px;background:var(--panel);}
+  table.sc-t{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px;}
+  table.sc-t th,table.sc-t td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);}
+  table.sc-t th{font-size:10.5px;letter-spacing:.06em;color:var(--ink-2);font-weight:600;background:#F0F2ED;}
+  table.sc-t td.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums;}
+  table.sc-t td.formula{font-family:var(--mono);font-size:11px;color:var(--ink-2);}
+  table.sc-t tr:last-child td{border-bottom:0;}
+  table.sc-t tr.sec td{background:#EEF1EC;font-weight:650;color:var(--ink);font-size:11px;letter-spacing:.04em;}
+  table.sc-t tr.sub td{color:var(--accent);font-weight:650;}
+  table.sc-t tr.sub td{border-top:1px solid var(--accent);}
+
+  .sc-adv{margin-top:14px;border:1px solid var(--line);border-radius:11px;background:var(--panel);overflow:hidden;}
+  .sc-adv summary{cursor:pointer;padding:12px 15px;font-size:12.5px;font-weight:600;color:var(--ink);
+    list-style:none;display:flex;justify-content:space-between;align-items:center;}
+  .sc-adv summary::-webkit-details-marker{display:none;}
+  .sc-adv summary .mk{font-family:var(--mono);color:var(--ink-2);font-size:12px;}
+  .sc-adv[open] summary{border-bottom:1px solid var(--line);}
+  .sc-advbody{padding:14px 15px;}
+  .sc-facrow{display:grid;grid-template-columns:1fr 96px;gap:8px 12px;align-items:center;margin-bottom:9px;}
+  .sc-facrow label{font-size:12px;color:var(--ink);}
+  .sc-facrow label small{display:block;color:var(--ink-2);font-size:10.5px;font-weight:400;margin-top:1px;}
+  .sc-facin{border:1px solid var(--line);border-radius:8px;background:#fff;font-family:var(--mono);
+    font-size:14px;padding:7px 9px;width:100%;outline:0;text-align:right;color:var(--ink);}
+  .sc-facin:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+
+  .sc-note{font-size:11px;color:var(--ink-2);line-height:1.5;margin-top:10px;}
+  .sc-err{color:var(--bad);font-size:12.5px;margin-top:8px;font-weight:600;}
+  .sc-foot{margin-top:22px;font-size:11px;color:var(--ink-2);line-height:1.55;}
+  @media(prefers-reduced-motion:reduce){.sc-inputrow{transition:none;}}
+`;
+
+const fmt = (x, dp = 2) => {
+  if (x == null || !isFinite(x)) return "—";
+  const r = Number(x.toFixed(dp));
+  return r.toLocaleString("en-US", { maximumFractionDigits: dp });
+};
+
+// ── 樁徑基本資料（每米樁材料係數，取自實際施工料單）──
+// cementBag: 每米水泥包數(40kg/包)　sand: 每米沙 m³　nMain: 樁主筋支數(#7)
+// hoopLen: 單圈箍筋長 m(#4)　capB×capH: 對應壓梁斷面 cm
+const PILE = {
+  50: { d: 50, cementBag: 4.5, cementKg: 180, sand: 0.17,  nMain: 8,  hoopLen: 1.15, capB: 60, capH: 60 },
+  70: { d: 70, cementBag: 8.0, cementKg: 320, sand: 0.331, nMain: 10, hoopLen: 1.75, capB: 80, capH: 60 },
+};
+// 鋼筋單位重 kg/m（料單採用值，CNS 560）
+const WT = { "#4": 0.994, "#6": 2.25, "#7": 3.051 };
+const PITCH_HOOP = 0.25; // 樁箍筋螺距 m（#4@25）
+const PITCH_CAP  = 0.20; // 壓梁箍筋間距 m（#4@20）
+const CAP_NMAIN  = 10;   // 壓梁主筋支數（#6*10）
+
+// 可調係數預設值（由料單反推）
+const DEF = {
+  mainLap:    1.04, // 主筋搭接係數（樁長→用料長，定尺 12/13/14m 兩段拼接）
+  hoopWaste:  1.10, // 樁箍筋定尺選用餘料係數
+  capMainLap: 1.30, // 壓梁主筋搭接係數（#6 定尺 12m 多段）
+  concWaste:  1.20, // 壓梁混凝土損耗係數
+  capHoopLen: 3.0,  // 壓梁單圈箍筋長 m（料單值）
+};
+
+const SCENARIOS = [
+  { id: "s1", label: "D50 混合（25/26m）", mode: "mix",
+    groups: [ { d: 50, L: "25", N: "108", s: "60" }, { d: 50, L: "26", N: "188", s: "60" } ] },
+  { id: "s2", label: "D70＋D50 混合", mode: "mix",
+    groups: [ { d: 70, L: "25", N: "53", s: "85" }, { d: 70, L: "26", N: "115", s: "85" },
+              { d: 50, L: "25", N: "40", s: "60" }, { d: 50, L: "26", N: "29", s: "60" } ] },
+  { id: "s3", label: "單一 D50・25m×100支", mode: "single",
+    groups: [ { d: 50, L: "25", N: "100", s: "60" } ] },
+];
+
+function calcGroup(g, F) {
+  const P = PILE[g.d];
+  const N = parseFloat(g.N), L = parseFloat(g.L), s = parseFloat(g.s);
+  if (!P || !(N > 0) || !(L > 0)) return null;
+  const ss = s > 0 ? s : 0;
+
+  const pileLen  = N * L;                                   // m
+  const cementBag = pileLen * P.cementBag;                  // 包
+  const cementT  = pileLen * P.cementKg / 1000;             // 噸
+  const sand     = pileLen * P.sand;                        // m³
+
+  const mainT    = N * P.nMain * L * F.mainLap * WT["#7"] / 1000;      // 噸 主筋#7
+  const hoopTurns = Math.max(L / PITCH_HOOP - 2, 0);        // 單樁箍筋圈數
+  const hoopT    = N * hoopTurns * P.hoopLen * WT["#4"] * F.hoopWaste / 1000; // 噸 樁箍筋#4
+
+  const capLen   = N * ss / 100;                            // m 壓梁長 = 支數×間距
+  const capConc  = (P.capB * P.capH / 10000) * capLen * F.concWaste;  // m³
+  const capMainT = CAP_NMAIN * capLen * F.capMainLap * WT["#6"] / 1000;        // 噸 壓梁主筋#6
+  const capHoopCount = Math.ceil(capLen / PITCH_CAP);       // 壓梁箍筋圈數
+  const capHoopT = capHoopCount * F.capHoopLen * WT["#4"] / 1000;     // 噸 壓梁箍筋#4
+
+  return { P, N, L, s: ss, pileLen, cementBag, cementT, sand,
+           mainT, hoopTurns, hoopT, capLen, capConc, capMainT, capHoopCount, capHoopT };
+}
+
+function PIPCalculator() {
+  const [mode, setMode] = useState("single");
+  const [single, setSingle] = useState({ d: 50, L: "25", N: "100", s: "60" });
+  const [groups, setGroups] = useState([
+    { d: 70, L: "25", N: "53", s: "85" },
+    { d: 50, L: "25", N: "40", s: "60" },
+  ]);
+  const [F, setF] = useState({ ...DEF });
+  const [copied, setCopied] = useState(false);
+
+  const rows = mode === "single" ? [single] : groups;
+
+  const setSingleField = (k, v) => setSingle((p) => ({ ...p, [k]: v }));
+  const setGroupField = (i, k, v) =>
+    setGroups((p) => p.map((g, j) => (j === i ? { ...g, [k]: v } : g)));
+  const addGroup = () =>
+    setGroups((p) => [...p, { d: 50, L: "25", N: "10", s: "60" }]);
+  const delGroup = (i) =>
+    setGroups((p) => (p.length > 1 ? p.filter((_, j) => j !== i) : p));
+
+  const setFac = (k, v) => setF((p) => ({ ...p, [k]: v === "" ? "" : parseFloat(v) }));
+  const resetFac = () => setF({ ...DEF });
+
+  const applyScenario = (sc) => {
+    setMode(sc.mode);
+    if (sc.mode === "single") setSingle({ ...sc.groups[0] });
+    else setGroups(sc.groups.map((g) => ({ ...g })));
+  };
+
+  // ── 計算 ──
+  const R = useMemo(() => {
+    const Fn = {
+      mainLap: +F.mainLap || 0, hoopWaste: +F.hoopWaste || 0,
+      capMainLap: +F.capMainLap || 0, concWaste: +F.concWaste || 0,
+      capHoopLen: +F.capHoopLen || 0,
+    };
+    const per = rows.map((g) => calcGroup(g, Fn)).filter(Boolean);
+    if (!per.length) return null;
+    const sum = (f) => per.reduce((a, x) => a + f(x), 0);
+    const t = {
+      pileLen: sum((x) => x.pileLen),
+      cementBag: sum((x) => x.cementBag),
+      cementT: sum((x) => x.cementT),
+      sand: sum((x) => x.sand),
+      mainT: sum((x) => x.mainT),
+      hoopT: sum((x) => x.hoopT),
+      capLen: sum((x) => x.capLen),
+      capConc: sum((x) => x.capConc),
+      capMainT: sum((x) => x.capMainT),
+      capHoopT: sum((x) => x.capHoopT),
+    };
+    t.steelT = t.mainT + t.hoopT + t.capMainT + t.capHoopT;
+    return { per, t };
+  }, [rows, F]);
+
+  const ok = !!R;
+
+  // ── 斷面／平面示意（以第一個有效樁群為代表）──
+  const fig = useMemo(() => {
+    if (!ok) return null;
+    const g = R.per[0];
+    const W = 360, H = 150;
+    const nShow = Math.min(g.N, 7);
+    const s = g.s > 0 ? g.s : g.P.d + 15; // 若未填間距，示意用
+    const dOuter = g.s > 0 ? s * (nShow - 1) + g.P.d : g.P.d * nShow * 1.6;
+    const k = Math.min(300 / Math.max(dOuter, g.P.d), 46 / g.P.d);
+    const r = (g.P.d * k) / 2;
+    const step = s * k;
+    const totalW = step * (nShow - 1) + 2 * r;
+    const x0 = (W - totalW) / 2 + r;
+    const cy = 88;
+    const capH = Math.max(g.P.capH * k, 12);
+    const cx = [];
+    for (let i = 0; i < nShow; i++) cx.push(x0 + i * step);
+    return { W, H, r, cx, cy, capH, capTop: cy - capH / 2, g, nShow, more: g.N > nShow };
+  }, [ok, R]);
+
+  // ── 複製備料清單 ──
+  const handleCopy = async () => {
+    if (!ok) return;
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const gl = R.per.map((x) => `　D${x.P.d} L=${fmt(x.L, 0)}m ×${fmt(x.N, 0)}支 @${fmt(x.s, 0)}cm`).join("\n");
+    const t = R.t;
+    const txt =
+`── 預壘樁數量估算 ──
+${ts}
+[樁群]
+${gl}
+
+[水泥砂漿]
+　總樁長　${fmt(t.pileLen, 0)} m
+　水泥　　${fmt(t.cementBag, 0)} 包（40kg）＝ ${fmt(t.cementT, 0)} 噸
+　沙　　　${fmt(t.sand, 0)} m³
+
+[鋼筋]
+　#7 樁主筋　　${fmt(t.mainT, 2)} 噸
+　#4 樁箍筋　　${fmt(t.hoopT, 2)} 噸
+　#6 壓梁主筋　${fmt(t.capMainT, 2)} 噸
+　#4 壓梁箍筋　${fmt(t.capHoopT, 2)} 噸
+　小計　　　　${fmt(t.steelT, 2)} 噸
+
+[壓梁]
+　壓梁長　${fmt(t.capLen, 1)} m
+　混凝土　${fmt(t.capConc, 1)} m³（損耗 ×${fmt(+F.concWaste, 2)}）
+
+係數：主筋搭接 ×${fmt(+F.mainLap, 2)}　箍筋餘料 ×${fmt(+F.hoopWaste, 2)}　壓梁主筋 ×${fmt(+F.capMainLap, 2)}　混凝土損耗 ×${fmt(+F.concWaste, 2)}
+本估算依施工料單模型，僅供備料規劃；實際數量以正式料單、設計圖與現場為準。`;
+    try {
+      await navigator.clipboard.writeText(txt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (e) {}
+  };
+
+  const t = ok ? R.t : null;
+
+  const facFields = [
+    { k: "mainLap",    lab: "主筋搭接係數",   sub: "樁長→用料長（定尺兩段）" },
+    { k: "hoopWaste",  lab: "箍筋餘料係數",   sub: "12m 定尺選用進位" },
+    { k: "capMainLap", lab: "壓梁主筋搭接",   sub: "#6 定尺 12m 多段" },
+    { k: "concWaste",  lab: "壓梁混凝土損耗", sub: "斷面×長度 ×損耗" },
+    { k: "capHoopLen", lab: "壓梁單圈箍筋長", sub: "m（料單值）" },
+  ];
+
+  return (
+    <div className="sc-wrap">
+      <style>{CSS}</style>
+      <div className="sc-shell">
+        <div className="sc-head">
+          <div className="sc-headL">
+            <h1 className="sc-title">預壘樁數量計算機</h1>
+            <span className="sc-sub">PIP · 排樁備料 · 水泥砂漿 · 鋼筋 · 壓梁</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="sc-seg">
+              <button data-on={mode === "single"} onClick={() => setMode("single")}>單一樁徑</button>
+              <button data-on={mode === "mix"} onClick={() => setMode("mix")}>混合</button>
+            </div>
+            <a className="sc-back" href="../">← 工具箱</a>
+          </div>
+        </div>
+        <div className="sc-rule" />
+
+        <div className="sc-scen">
+          <span className="sc-scenLab">範例</span>
+          {SCENARIOS.map((s) => (
+            <button key={s.id} className="sc-chip" onClick={() => applyScenario(s)}>{s.label}</button>
+          ))}
+        </div>
+
+        <div className="sc-grid">
+          {/* 輸入 */}
+          <div className="sc-panel">
+            <p className="sc-eyebrow">輸入 · Input</p>
+
+            {mode === "single" ? (
+              <>
+                <div className="sc-field">
+                  <div className="sc-label"><span>樁徑</span>
+                    <small>#7×{PILE[single.d].nMain} · 壓梁 {PILE[single.d].capB}×{PILE[single.d].capH}</small></div>
+                  <div className="sc-seg">
+                    <button data-on={single.d === 50} onClick={() => setSingleField("d", 50)}>D50 ∮50</button>
+                    <button data-on={single.d === 70} onClick={() => setSingleField("d", 70)}>D70 ∮70</button>
+                  </div>
+                </div>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>樁長 L</span><small>m</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={single.L} onChange={(e) => setSingleField("L", e.target.value)} placeholder="0" />
+                      <span className="sc-unit">m</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>支數 N</span><small>支</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="numeric" min="1" step="1"
+                        value={single.N} onChange={(e) => setSingleField("N", e.target.value)} placeholder="0" />
+                      <span className="sc-unit">支</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-field">
+                  <div className="sc-label"><span>間距</span><small>中心距（決定壓梁長）</small></div>
+                  <div className="sc-inputrow">
+                    <span className="sc-pre">@</span>
+                    <input className="sc-input" type="number" inputMode="decimal"
+                      value={single.s} onChange={(e) => setSingleField("s", e.target.value)} placeholder="0" />
+                    <span className="sc-unit">cm</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="sc-grp">
+                  <div className="sc-grp-h">
+                    <span>樁徑</span><span>樁長 m</span><span>支數</span><span>間距 cm</span><span></span>
+                  </div>
+                  {groups.map((g, i) => (
+                    <div className="sc-grp-r" key={i}>
+                      <div className="sc-grp-cell">
+                        <select value={g.d} onChange={(e) => setGroupField(i, "d", parseInt(e.target.value, 10))}>
+                          <option value={50}>D50</option>
+                          <option value={70}>D70</option>
+                        </select>
+                      </div>
+                      <div className="sc-grp-cell">
+                        <input type="number" inputMode="decimal" value={g.L}
+                          onChange={(e) => setGroupField(i, "L", e.target.value)} placeholder="0" />
+                      </div>
+                      <div className="sc-grp-cell">
+                        <input type="number" inputMode="numeric" value={g.N}
+                          onChange={(e) => setGroupField(i, "N", e.target.value)} placeholder="0" />
+                      </div>
+                      <div className="sc-grp-cell">
+                        <input type="number" inputMode="decimal" value={g.s}
+                          onChange={(e) => setGroupField(i, "s", e.target.value)} placeholder="0" />
+                      </div>
+                      <div className="sc-grp-cell">
+                        <button className="sc-del" onClick={() => delGroup(i)} title="刪除此列"
+                          disabled={groups.length <= 1}>×</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button className="sc-add" onClick={addGroup}>＋ 新增樁群</button>
+              </>
+            )}
+
+            {/* 可調係數 */}
+            <details className="sc-adv">
+              <summary>可調係數（由料單反推的預設值）<span className="mk">▾</span></summary>
+              <div className="sc-advbody">
+                {facFields.map((f) => (
+                  <div className="sc-facrow" key={f.k}>
+                    <label>{f.lab}<small>{f.sub}</small></label>
+                    <input className="sc-facin" type="number" inputMode="decimal" step="0.01"
+                      value={F[f.k]} onChange={(e) => setFac(f.k, e.target.value)} />
+                  </div>
+                ))}
+                <button className="sc-copy" style={{ marginTop: 2 }} onClick={resetFac}>回復預設</button>
+                <p className="sc-note">
+                  每米樁固定係數（水泥／沙／主筋支數／箍筋單圈長）與壓梁斷面依樁徑帶入，見下方「係數對照」。
+                </p>
+              </div>
+            </details>
+          </div>
+
+          {/* 結果 */}
+          <div className="sc-panel">
+            <div className="sc-eyebrowRow">
+              <p className="sc-eyebrow" style={{ margin: 0 }}>結果 · Output</p>
+              <button className="sc-copy" data-done={copied} onClick={handleCopy} disabled={!ok}>
+                {copied ? "已複製 ✓" : "複製備料清單"}
+              </button>
+            </div>
+
+            <div className="sc-readouts">
+              <div className="sc-ro">
+                <div className="k">水泥（40kg/包）</div>
+                <div className="v">{ok ? fmt(t.cementBag, 0) : "—"}</div>
+                <div className="u">包</div>
+                <div className="sub">{ok ? `${fmt(t.cementT, 0)} 噸` : ""}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">沙</div>
+                <div className="v">{ok ? fmt(t.sand, 0) : "—"}</div>
+                <div className="u">m³</div>
+                <div className="sub">{ok ? `總樁長 ${fmt(t.pileLen, 0)} m` : ""}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">鋼筋 小計</div>
+                <div className="v">{ok ? fmt(t.steelT, 2) : "—"}</div>
+                <div className="u">噸</div>
+                <div className="sub">{ok ? `#7 ${fmt(t.mainT, 1)}／#4 ${fmt(t.hoopT + t.capHoopT, 1)}` : ""}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">壓梁混凝土</div>
+                <div className="v">{ok ? fmt(t.capConc, 1) : "—"}</div>
+                <div className="u">m³</div>
+                <div className="sub">{ok ? `壓梁長 ${fmt(t.capLen, 1)} m` : ""}</div>
+              </div>
+            </div>
+
+            <div className="sc-figwrap">
+              {fig ? (
+                <svg className="sc-fig" viewBox={`0 0 ${fig.W} ${fig.H}`} role="img" aria-label="排樁平面示意圖">
+                  {/* 壓梁帶 */}
+                  <rect className="cap" x={fig.cx[0] - fig.r - 6} y={fig.capTop}
+                    width={fig.cx[fig.cx.length - 1] - fig.cx[0] + 2 * fig.r + 12} height={fig.capH} rx="4" />
+                  {/* 樁 */}
+                  {fig.cx.map((x, i) => (
+                    <circle key={i} className="pilef" cx={x} cy={fig.cy} r={fig.r} />
+                  ))}
+                  {/* 間距標註 */}
+                  {fig.g.s > 0 && fig.cx.length >= 2 && (
+                    <g>
+                      <line className="dimline" x1={fig.cx[0]} x2={fig.cx[1]} y1={fig.cy + fig.r + 16} y2={fig.cy + fig.r + 16} />
+                      <line className="dimline" x1={fig.cx[0]} x2={fig.cx[0]} y1={fig.cy + fig.r + 11} y2={fig.cy + fig.r + 21} />
+                      <line className="dimline" x1={fig.cx[1]} x2={fig.cx[1]} y1={fig.cy + fig.r + 11} y2={fig.cy + fig.r + 21} />
+                      <text className="lbl" x={(fig.cx[0] + fig.cx[1]) / 2} y={fig.cy + fig.r + 32} textAnchor="middle">@{fmt(fig.g.s, 0)}</text>
+                    </g>
+                  )}
+                  {/* 樁徑標註 */}
+                  <text className="dim" x={fig.cx[0]} y={fig.capTop - 6} textAnchor="middle">∮{fig.g.P.d}</text>
+                  <text className="dim" x={fig.W / 2} y={16} textAnchor="middle">
+                    {mode === "mix" ? `混合 ${R.per.length} 樁群，共 ${fmt(t.pileLen, 0)} m　（示意：D${fig.g.P.d}）` :
+                     `D${fig.g.P.d} ×${fmt(fig.g.N, 0)} 支 @${fmt(fig.g.s, 0)}${fig.more ? "…" : ""}`}
+                  </text>
+                  <text className="dim" x={fig.W / 2} y={fig.H - 6} textAnchor="middle">
+                    壓梁 {fig.g.P.capB}×{fig.g.P.capH} cm
+                  </text>
+                </svg>
+              ) : (
+                <svg className="sc-fig" viewBox="0 0 360 120" aria-hidden="true">
+                  <text x="180" y="64" textAnchor="middle" className="dim">輸入樁徑、樁長與支數以顯示</text>
+                </svg>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 用料明細 */}
+        <div className="sc-detail">
+          <p className="sc-eyebrow">用料明細 · Breakdown</p>
+          <div className="sc-tablewrap">
+            <table className="sc-t">
+              <thead>
+                <tr><th>項目</th><th style={{ textAlign: "right" }}>數量</th><th>單位</th><th>算式</th></tr>
+              </thead>
+              <tbody>
+                <tr className="sec"><td colSpan="4">水泥砂漿</td></tr>
+                <tr>
+                  <td>水泥</td>
+                  <td className="num">{ok ? fmt(t.cementBag, 0) : "—"}</td><td>包(40kg)</td>
+                  <td className="formula">總樁長 × 每米包數（D50 4.5／D70 8.0）</td>
+                </tr>
+                <tr>
+                  <td>水泥（重）</td>
+                  <td className="num">{ok ? fmt(t.cementT, 1) : "—"}</td><td>噸</td>
+                  <td className="formula">包數 × 40kg</td>
+                </tr>
+                <tr>
+                  <td>沙</td>
+                  <td className="num">{ok ? fmt(t.sand, 1) : "—"}</td><td>m³</td>
+                  <td className="formula">總樁長 × 每米沙量（D50 0.17／D70 0.331）</td>
+                </tr>
+
+                <tr className="sec"><td colSpan="4">鋼筋</td></tr>
+                <tr>
+                  <td>#7 樁主筋</td>
+                  <td className="num">{ok ? fmt(t.mainT, 2) : "—"}</td><td>噸</td>
+                  <td className="formula">N × 主筋支數 × L × 搭接{fmt(+F.mainLap, 2)} × 3.051</td>
+                </tr>
+                <tr>
+                  <td>#4 樁箍筋</td>
+                  <td className="num">{ok ? fmt(t.hoopT, 2) : "—"}</td><td>噸</td>
+                  <td className="formula">N × (L/0.25−2) 圈 × 單圈長 × 餘料{fmt(+F.hoopWaste, 2)} × 0.994</td>
+                </tr>
+                <tr>
+                  <td>#6 壓梁主筋</td>
+                  <td className="num">{ok ? fmt(t.capMainT, 2) : "—"}</td><td>噸</td>
+                  <td className="formula">10 支 × 壓梁長 × 搭接{fmt(+F.capMainLap, 2)} × 2.25</td>
+                </tr>
+                <tr>
+                  <td>#4 壓梁箍筋</td>
+                  <td className="num">{ok ? fmt(t.capHoopT, 2) : "—"}</td><td>噸</td>
+                  <td className="formula">壓梁長/0.20 圈 × {fmt(+F.capHoopLen, 1)}m × 0.994</td>
+                </tr>
+                <tr className="sub">
+                  <td>鋼筋 小計</td>
+                  <td className="num">{ok ? fmt(t.steelT, 2) : "—"}</td><td>噸</td><td className="formula"></td>
+                </tr>
+
+                <tr className="sec"><td colSpan="4">壓梁</td></tr>
+                <tr>
+                  <td>壓梁長</td>
+                  <td className="num">{ok ? fmt(t.capLen, 1) : "—"}</td><td>m</td>
+                  <td className="formula">Σ 支數 × 間距</td>
+                </tr>
+                <tr>
+                  <td>混凝土</td>
+                  <td className="num">{ok ? fmt(t.capConc, 1) : "—"}</td><td>m³</td>
+                  <td className="formula">斷面(D50 60×60／D70 80×60) × 長 × 損耗{fmt(+F.concWaste, 2)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {mode === "mix" && ok && (
+            <div className="sc-tablewrap" style={{ marginTop: 12 }}>
+              <table className="sc-t">
+                <thead>
+                  <tr><th>樁群</th><th style={{ textAlign: "right" }}>樁長 m</th>
+                    <th style={{ textAlign: "right" }}>水泥 包</th><th style={{ textAlign: "right" }}>沙 m³</th>
+                    <th style={{ textAlign: "right" }}>鋼筋 噸</th></tr>
+                </thead>
+                <tbody>
+                  {R.per.map((x, i) => (
+                    <tr key={i}>
+                      <td>D{x.P.d} · L{fmt(x.L, 0)} · {fmt(x.N, 0)}支 @{fmt(x.s, 0)}</td>
+                      <td className="num">{fmt(x.pileLen, 0)}</td>
+                      <td className="num">{fmt(x.cementBag, 0)}</td>
+                      <td className="num">{fmt(x.sand, 1)}</td>
+                      <td className="num">{fmt(x.mainT + x.hoopT + x.capMainT + x.capHoopT, 2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* 係數對照 */}
+        <div className="sc-detail">
+          <p className="sc-eyebrow">係數對照 · Coefficients（取自實際施工料單）</p>
+          <div className="sc-tablewrap">
+            <table className="sc-t">
+              <thead>
+                <tr><th>樁徑</th><th style={{ textAlign: "right" }}>水泥 包/m</th>
+                  <th style={{ textAlign: "right" }}>沙 m³/m</th><th style={{ textAlign: "right" }}>樁主筋</th>
+                  <th style={{ textAlign: "right" }}>樁箍筋</th><th style={{ textAlign: "right" }}>單圈長 m</th>
+                  <th style={{ textAlign: "right" }}>壓梁斷面</th></tr>
+              </thead>
+              <tbody>
+                {[50, 70].map((d) => {
+                  const P = PILE[d];
+                  return (
+                    <tr key={d}>
+                      <td>D{d} ∮{d}cm</td>
+                      <td className="num">{P.cementBag}（{P.cementKg}kg）</td>
+                      <td className="num">{P.sand}</td>
+                      <td className="num">#7×{P.nMain}</td>
+                      <td className="num">#4@25</td>
+                      <td className="num">{P.hoopLen}</td>
+                      <td className="num">{P.capB}×{P.capH}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="sc-note">
+            鋼筋單位重（料單值）：#4 = 0.994、#6 = 2.25、#7 = 3.051 kg/m。壓梁主筋 #6×10、箍筋 #4@20。
+            模型以實際施工料單反推並對帳（鋼筋合計誤差 &lt; 0.5%）。
+          </p>
+        </div>
+
+        <p className="sc-foot">
+          本工具依施工料單的備料方法建立估算模型，係數（水泥／沙每米用量、鋼筋搭接與餘料、混凝土損耗）
+          取自實際施工料單，可於「可調係數」自行修正以貼近各案配比。壓梁長以「支數 × 間距」計；
+          鋼筋含搭接與定尺選用餘料為概估值。本估算僅供施工規劃與備料參考，
+          實際數量、配筋與付款請以正式料單、設計圖說與現場丈量為準。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<PIPCalculator />);
+  </script>
+</body>
+</html>

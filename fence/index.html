@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>北北桃施工圍籬面積計算機 · Site Hoarding Area Calculator</title>
+  <meta name="description" content="輸入基地各面長度、臨接道路寬度與版片高度，依臺北／新北／桃園法規自動算出圍籬版片、RC防溢座、透空圍籬、綠化、美化、安全走廊與隔音帆布之面積數量，附立面示意圖，可一鍵複製估算紀錄。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='4' y='9' width='24' height='16' rx='1.5' fill='none' stroke='%231E241F' stroke-width='2.5'/><line x1='4' y1='22' x2='28' y2='22' stroke='%231C6E63' stroke-width='2.5'/><line x1='12' y1='9' x2='12' y2='25' stroke='%231E241F' stroke-width='1.6'/><line x1='20' y1='9' x2='20' y2='25' stroke='%231E241F' stroke-width='1.6'/></svg>" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #EBEEE9; }
+    #root { min-height: 100vh; }
+    #boot { font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+      color: #5C635A; text-align: center; padding: 80px 20px; font-size: 14px; }
+  </style>
+
+  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build）。版本釘死，避免 Babel 8 之 jsx-runtime import -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"><div id="boot">載入中…</div></div>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+// 北北桃施工圍籬面積計算機
+// 依基地各面之長度、臨接道路寬度、版片高度，計算各項施工圍籬面積數量。
+// 三市法規門檻（綠美化、安全走廊）預填但可編輯，避免把不確定值寫死；
+// 面積為快速估算，實際仍以核定圖說、都審與最新法規為準。
+
+const CSS = `
+  .sc-wrap{
+    --paper:#EBEEE9; --panel:#F8F9F6; --ink:#1E241F; --ink-2:#5C635A;
+    --line:#CDD3C9; --accent:#1C6E63; --accent-soft:#DCEAE5;
+    --ok:#2E7D4F; --warn:#B0781A; --bad:#AF3A2E;
+    --grid:#DCE1D8;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    min-height:100%; padding:22px; box-sizing:border-box; -webkit-font-smoothing:antialiased;
+  }
+  .sc-shell{max-width:940px;margin:0 auto;}
+  .sc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between;margin-bottom:4px;}
+  .sc-headL{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .sc-title{font-size:22px;font-weight:650;letter-spacing:-.01em;margin:0;}
+  .sc-sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+  .sc-back{font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:4px 10px;background:#fff;transition:.12s;white-space:nowrap;}
+  .sc-back:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-rule{height:1px;background:var(--line);margin:14px 0 18px;}
+  .sc-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);
+    font-weight:600;margin:0 0 10px;}
+
+  .sc-grid{display:grid;grid-template-columns:1.05fr 1fr;gap:16px;}
+  @media(max-width:720px){.sc-grid{grid-template-columns:1fr;}}
+  .sc-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;}
+
+  .sc-cityrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .sc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;}
+  .sc-seg button{border:0;background:transparent;font-family:var(--sans);font-size:13px;
+    padding:8px 14px;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
+  .sc-seg button+button{border-left:1px solid var(--line);}
+  .sc-seg button[data-on="true"]{background:var(--ink);color:#fff;font-weight:600;}
+  .sc-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+
+  .sc-field{margin-bottom:13px;}
+  .sc-field:last-child{margin-bottom:0;}
+  .sc-label{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:600;margin-bottom:6px;}
+  .sc-label small{font-weight:400;color:var(--ink-2);font-family:var(--mono);font-size:11px;}
+  .sc-inputrow{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:9px;
+    overflow:hidden;background:#fff;transition:border-color .15s,box-shadow .15s;}
+  .sc-inputrow:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .sc-input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-family:var(--mono);
+    font-size:16px;padding:9px 10px;color:var(--ink);width:100%;}
+  .sc-unit{display:flex;align-items:center;padding:0 10px;font-family:var(--mono);font-size:12px;
+    color:var(--ink-2);background:#F0F2ED;border-left:1px solid var(--line);}
+  .sc-select{width:100%;border:1px solid var(--line);border-radius:9px;background:#fff;
+    font-family:var(--sans);font-size:13px;padding:9px 10px;color:var(--ink);outline:0;cursor:pointer;}
+  .sc-select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+
+  /* 各面清單 */
+  .sc-sidehead,.sc-siderow{display:grid;grid-template-columns:56px 1fr 1fr 92px 30px;gap:7px;align-items:center;}
+  .sc-sidehead{font-size:10.5px;letter-spacing:.04em;color:var(--ink-2);font-weight:600;margin-bottom:7px;padding:0 2px;}
+  .sc-siderow{margin-bottom:7px;}
+  .sc-sidename{font-size:12px;font-weight:600;color:var(--ink-2);font-family:var(--mono);}
+  .sc-mini{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:#fff;}
+  .sc-mini:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .sc-mini input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-family:var(--mono);
+    font-size:14px;padding:7px 8px;color:var(--ink);width:100%;}
+  .sc-mini .u{display:flex;align-items:center;padding:0 6px;font-family:var(--mono);font-size:10.5px;
+    color:var(--ink-2);background:#F0F2ED;border-left:1px solid var(--line);}
+  .sc-mini select{border:0;outline:0;background:transparent;font-family:var(--mono);font-size:13px;padding:7px 4px;color:var(--ink);width:100%;cursor:pointer;}
+  .sc-del{border:1px solid var(--line);background:#fff;border-radius:7px;color:var(--ink-2);
+    cursor:pointer;font-size:15px;line-height:1;padding:6px 0;transition:.12s;}
+  .sc-del:hover{border-color:var(--bad);color:var(--bad);}
+  .sc-add{margin-top:4px;border:1px dashed var(--line);background:#fff;border-radius:8px;color:var(--ink-2);
+    cursor:pointer;font-family:var(--sans);font-size:12.5px;padding:8px;width:100%;transition:.12s;}
+  .sc-add:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-road0{color:var(--ink-2);}
+
+  .sc-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .sc-sub-panel{background:#fff;border:1px solid var(--line);border-radius:9px;padding:12px 12px 13px;margin-top:12px;}
+  .sc-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;}
+  .sc-check input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;}
+
+  .sc-eyebrowRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .sc-copy{border:1px solid var(--line);background:#fff;border-radius:7px;font-family:var(--sans);
+    font-size:11.5px;color:var(--ink-2);padding:5px 11px;cursor:pointer;transition:.12s;}
+  .sc-copy:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .sc-copy:disabled{opacity:.45;cursor:default;}
+  .sc-copy[data-done="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-readouts{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-bottom:14px;}
+  .sc-ro{background:var(--panel);padding:12px 10px;text-align:center;}
+  .sc-ro .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600;}
+  .sc-ro .v{font-family:var(--mono);font-size:22px;font-weight:600;letter-spacing:-.02em;line-height:1.15;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .sc-ro .u{font-family:var(--mono);font-size:11px;color:var(--ink-2);}
+
+  .sc-brk{border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .sc-brk .grp{background:var(--accent-soft);font-size:11px;letter-spacing:.06em;font-weight:700;color:var(--ink);padding:7px 12px;border-top:1px solid var(--line);}
+  .sc-brk .grp:first-child{border-top:0;}
+  .sc-brk .row{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;font-size:12.5px;background:#fff;border-top:1px solid var(--line);}
+  .sc-brk .row .lab{color:var(--ink);}
+  .sc-brk .row .lab small{color:var(--ink-2);font-family:var(--mono);font-size:10.5px;margin-left:5px;}
+  .sc-brk .row .val{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+  .sc-brk .row.muted .val{color:var(--ink-2);}
+  .sc-brk .row.tot{font-weight:700;background:var(--accent-soft);}
+
+  .sc-figwrap{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:6px 6px 2px;overflow:hidden;}
+  .sc-fig{display:block;width:100%;height:auto;}
+  .sc-fig .grid{stroke:var(--grid);stroke-width:1;}
+  .sc-fig .panel{fill:#E4EAE4;stroke:var(--ink);stroke-width:1.6;}
+  .sc-fig .base{fill:var(--ink-2);opacity:.85;}
+  .sc-fig .mesh{fill:none;stroke:var(--accent);stroke-width:1;}
+  .sc-fig .dimline{stroke:var(--ink-2);stroke-width:1;}
+  .sc-fig text{font-family:var(--mono);fill:var(--ink);}
+  .sc-fig .dim{fill:var(--ink-2);font-size:11px;}
+  .sc-fig .lbl{fill:var(--accent);font-size:11px;font-weight:600;}
+
+  .sc-info{margin-top:12px;border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;background:#fff;padding:10px 12px;font-size:11.5px;color:var(--ink-2);line-height:1.6;}
+  .sc-info b{color:var(--ink);}
+  .sc-note{font-size:11px;color:var(--ink-2);line-height:1.5;margin-top:8px;}
+  .sc-foot{margin-top:20px;font-size:11px;color:var(--ink-2);line-height:1.55;}
+  .sc-err{color:var(--bad);font-size:12.5px;margin-top:8px;font-weight:600;}
+  @media(prefers-reduced-motion:reduce){.sc-inputrow,.sc-mini{transition:none;}}
+`;
+
+const fmt = (x, dp = 1) => {
+  if (!isFinite(x)) return "—";
+  const r = Number(x.toFixed(dp));
+  return r.toLocaleString("en-US", { maximumFractionDigits: dp, minimumFractionDigits: dp });
+};
+const num = (s) => { const v = parseFloat(s); return isFinite(v) ? v : 0; };
+
+// ── 三市法規門檻（預填值，可於欄位覆寫）──
+const CITY = {
+  tp:   { name: "臺北市", g: 10, c: 10,
+    note: "綠美化：安全圍籬臨接 <b>10m 以上</b>道路、公園、綠地、廣場，沿街面 <b>≥½ 密植綠化</b>。安全走廊：臨計畫道路內人行道即應設（無明列寬度門檻，此處預設 10m 供試算，實際依個案）。防溢座：圍籬 <3m→30×15cm、≥3m→60×30cm。轉角兩側 10m 內、地面 80cm 以上應為網狀。" },
+  ntpc: { name: "新北市", g: 10, c: 12,
+    note: "綠美化：依「施工圍籬綠美化推動實施計畫」辦理，實務多以沿街面 <b>½</b> 計（門檻預設 10m，請依核定計畫調整）。安全走廊：面前道路 <b>≥12m 且臨接長 ≥10m</b> 應設有頂蓋走廊。防溢座：圍籬 <3m→30×15cm、≥3m→60×30cm。截角漏空 ≤6cm 網狀並內附透明帆布。" },
+  tyc:  { name: "桃園市", g: 8,  c: 12,
+    note: "綠美化：臨接<b>都市計畫道路或路寬 ≥8m</b> 之圍籬，美化面積 <b>≥沿街面 ½</b>。安全走廊：依個案（預設 12m 供試算）。防溢座尺寸法規未明列，沿用常見 30/60cm。轉角 6m 內、漏空 ≤6cm。四樓版以下加設 0.22mm 帆布。" },
+};
+
+const H_OPTIONS = ["2.4", "3", "4"]; // 版片高 (m)
+const baseHeightFor = (h) => (h >= 3 ? 0.6 : 0.3); // 防溢座高：圍籬≥3m→60cm，否則30cm
+
+let SIDE_UID = 0;
+const mkSide = (len, road, h) => ({ id: ++SIDE_UID, len: String(len), road: String(road), h: String(h) });
+
+function FenceCalculator() {
+  const [city, setCity] = useState("tp");
+  const [sides, setSides] = useState(() => [
+    mkSide(30, 12, "2.4"),
+    mkSide(20, 8, "2.4"),
+    mkSide(30, 0, "2.4"),
+    mkSide(20, 0, "2.4"),
+  ]);
+
+  const [gThresh, setGThresh] = useState(String(CITY.tp.g)); // 綠美化門檻路寬 m
+  const [cThresh, setCThresh] = useState(String(CITY.tp.c)); // 安全走廊門檻路寬 m
+  const [gRatio, setGRatio] = useState("0.5"); // 綠化占沿街面比例
+  const [openLen, setOpenLen] = useState("0"); // 施工大門/出入口總長 m（自綠美化沿街面扣除）
+
+  const [fabricOn, setFabricOn] = useState(false);
+  const [fabricScope, setFabricScope] = useState("road"); // road=僅臨路面 / all=全部面
+  const [fabricH, setFabricH] = useState("2.4");
+
+  const [tpLen, setTpLen] = useState("0"); // 透空圍籬長 m（轉角網狀/上部透空，另計）
+  const [tpH, setTpH] = useState("1.6");   // 透空段高 m
+
+  const [corrWidth, setCorrWidth] = useState("2.4"); // 安全走廊寬 m
+  const [corrOverride, setCorrOverride] = useState(""); // 走廊長度手動覆寫 m（空=自動）
+
+  const [copied, setCopied] = useState(false);
+
+  const changeCity = (c) => {
+    setCity(c);
+    setGThresh(String(CITY[c].g));
+    setCThresh(String(CITY[c].c));
+  };
+  const setSide = (id, key, v) => setSides((a) => a.map((s) => (s.id === id ? { ...s, [key]: v } : s)));
+  const addSide = () => setSides((a) => [...a, mkSide(20, 0, "2.4")]);
+  const delSide = (id) => setSides((a) => (a.length > 1 ? a.filter((s) => s.id !== id) : a));
+
+  const r = useMemo(() => {
+    const S = sides.map((s) => ({ len: num(s.len), road: num(s.road), h: num(s.h) }));
+    const gT = num(gThresh), cT = num(cThresh);
+    const ratio = Math.min(Math.max(num(gRatio), 0), 1);
+
+    const grossL = S.reduce((a, s) => a + s.len, 0);          // 圍籬總延長
+    const roadL = S.reduce((a, s) => a + (s.road > 0 ? s.len : 0), 0); // 臨路面延長
+    const roadCount = S.filter((s) => s.road > 0).length;
+
+    // 版片：各面 長×高，依高度分組
+    const panelBuckets = {};
+    let panelArea = 0;
+    S.forEach((s) => {
+      const a = s.len * s.h;
+      panelArea += a;
+      const k = s.h.toString();
+      panelBuckets[k] = (panelBuckets[k] || 0) + a;
+    });
+
+    // 防溢座：依各面圍籬高決定 30/60cm
+    let base30L = 0, base60L = 0;
+    S.forEach((s) => { if (s.len > 0) (s.h >= 3 ? (base60L += s.len) : (base30L += s.len)); });
+    const base30A = base30L * 0.3, base60A = base60L * 0.6;
+    const baseArea = base30A + base60A;
+
+    // 綠美化沿街面（路寬 ≥ 門檻）
+    let streetFace = 0, greenQualL = 0;
+    S.forEach((s) => { if (s.road >= gT && gT > 0) { streetFace += s.len * s.h; greenQualL += s.len; } });
+    const openDeduct = greenQualL > 0 ? (Math.min(num(openLen), greenQualL) / greenQualL) * streetFace : 0;
+    const streetNet = Math.max(0, streetFace - openDeduct);
+    const greenArea = streetNet * ratio;
+    const beautifyArea = streetNet * (1 - ratio);
+
+    // 安全走廊（路寬 ≥ 門檻 且 面長 ≥ 10m）
+    let corrAutoL = 0;
+    S.forEach((s) => { if (s.road >= cT && cT > 0 && s.len >= 10) corrAutoL += s.len; });
+    const corrL = corrOverride.trim() !== "" ? num(corrOverride) : corrAutoL;
+    const corrArea = corrL * num(corrWidth);
+
+    // 透空圍籬（手動）
+    const transArea = num(tpLen) * num(tpH);
+
+    // 隔音帆布
+    const fabricL = fabricScope === "all" ? grossL : roadL;
+    const fabricArea = fabricOn ? fabricL * num(fabricH) : 0;
+
+    return {
+      grossL, roadL, roadCount,
+      panelArea, panelBuckets,
+      base30L, base60L, base30A, base60A, baseArea,
+      streetFace, streetNet, openDeduct, greenArea, beautifyArea, greenQualL,
+      corrAutoL, corrL, corrArea,
+      transArea, fabricL, fabricArea, ratio,
+    };
+  }, [sides, gThresh, cThresh, gRatio, openLen, fabricOn, fabricScope, fabricH, tpLen, tpH, corrWidth, corrOverride]);
+
+  // 立面示意圖：取第一面（或最高面）為代表
+  const repH = useMemo(() => {
+    const hs = sides.map((s) => num(s.h)).filter((h) => h > 0);
+    return hs.length ? Math.max(...hs) : 2.4;
+  }, [sides]);
+
+  const handleCopy = async () => {
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const bk = Object.keys(r.panelBuckets).sort((a, b) => a - b)
+      .map((k) => `${k}m ${fmt(r.panelBuckets[k])}㎡`).join("、");
+    const lines = [
+      `── 施工圍籬面積估算（${CITY[city].name}）──`,
+      ts,
+      `圍籬面數：${sides.length} 面（臨路 ${r.roadCount} 面）　總延長：${fmt(r.grossL)} m`,
+      ``,
+      `圍籬版片　　${fmt(r.panelArea)} ㎡（${bk}）`,
+      `RC防溢座　　${fmt(r.baseArea)} ㎡（30cm ${fmt(r.base30L)}m／60cm ${fmt(r.base60L)}m）`,
+      `透空圍籬　　${fmt(r.transArea)} ㎡`,
+      `綠化面積　　${fmt(r.greenArea)} ㎡（沿街面 ${fmt(r.streetNet)}㎡ × ${fmt(r.ratio * 100, 0)}%）`,
+      `美化面積　　${fmt(r.beautifyArea)} ㎡`,
+      `安全走廊　　${fmt(r.corrL)} m ／ 頂蓋 ${fmt(r.corrArea)} ㎡`,
+      `隔音帆布　　${fabricOn ? fmt(r.fabricArea) + " ㎡" : "（未計）"}`,
+      ``,
+      `門檻：綠美化路寬≥${gThresh}m、安全走廊路寬≥${cThresh}m。面積為快速估算，實際以核定圖說、都審及最新法規為準。`,
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (e) {}
+  };
+
+  // SVG 立面幾何
+  const fig = (() => {
+    const W = 360, H = 190, x0 = 46, y1 = 26, y2 = 150; // 地面 y2
+    const totalH = repH;                      // 版片高(含頂)
+    const baseHm = baseHeightFor(totalH);      // 防溢座高
+    const pxPerM = (y2 - y1) / Math.max(totalH, 2.4);
+    const baseTop = y2 - baseHm * pxPerM;
+    const rightX = W - 30;
+    return { W, H, x0, y1, y2, baseTop, rightX, totalH, baseHm };
+  })();
+
+  return (
+    <div className="sc-wrap">
+      <style>{CSS}</style>
+      <div className="sc-shell">
+        <div className="sc-head">
+          <div className="sc-headL">
+            <h1 className="sc-title">北北桃施工圍籬面積計算機</h1>
+            <span className="sc-sub">Site Hoarding · 臺北 · 新北 · 桃園</span>
+          </div>
+          <a className="sc-back" href="../">← 工具箱</a>
+        </div>
+        <div className="sc-rule" />
+
+        <div className="sc-cityrow">
+          <span className="sc-sub" style={{ fontWeight: 600 }}>適用法規</span>
+          <div className="sc-seg">
+            {Object.keys(CITY).map((c) => (
+              <button key={c} data-on={city === c} onClick={() => changeCity(c)}>{CITY[c].name}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="sc-grid">
+          {/* ── 輸入 ── */}
+          <div className="sc-panel">
+            <p className="sc-eyebrow">各面輸入 · Sides</p>
+            <div className="sc-sidehead">
+              <span>面</span><span>長度</span><span>臨接路寬</span><span>版片高</span><span></span>
+            </div>
+            {sides.map((s, i) => (
+              <div className="sc-siderow" key={s.id}>
+                <span className="sc-sidename">面{i + 1}</span>
+                <div className="sc-mini">
+                  <input type="number" inputMode="decimal" value={s.len}
+                    onChange={(e) => setSide(s.id, "len", e.target.value)} placeholder="0" />
+                  <span className="u">m</span>
+                </div>
+                <div className="sc-mini">
+                  <input type="number" inputMode="decimal" value={s.road}
+                    className={num(s.road) > 0 ? "" : "sc-road0"}
+                    onChange={(e) => setSide(s.id, "road", e.target.value)} placeholder="0＝不臨路" />
+                  <span className="u">m</span>
+                </div>
+                <div className="sc-mini">
+                  <select value={s.h} onChange={(e) => setSide(s.id, "h", e.target.value)}>
+                    {H_OPTIONS.map((h) => <option key={h} value={h}>{h} m</option>)}
+                  </select>
+                </div>
+                <button className="sc-del" title="刪除此面" onClick={() => delSide(s.id)}>×</button>
+              </div>
+            ))}
+            <button className="sc-add" onClick={addSide}>＋ 新增一面（不規則基地）</button>
+
+            <div className="sc-sub-panel">
+              <div className="sc-two">
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>綠美化門檻路寬</span><small>≥ 觸發</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={gThresh}
+                      onChange={(e) => setGThresh(e.target.value)} />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>安全走廊門檻路寬</span><small>≥ 且長≥10m</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={cThresh}
+                      onChange={(e) => setCThresh(e.target.value)} />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+              </div>
+              <div className="sc-two" style={{ marginTop: 11 }}>
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>綠化比例</span><small>占沿街面</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" step="0.05" value={gRatio}
+                      onChange={(e) => setGRatio(e.target.value)} />
+                    <span className="sc-unit">0–1</span>
+                  </div>
+                </div>
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>大門/出入口</span><small>扣綠美化</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={openLen}
+                      onChange={(e) => setOpenLen(e.target.value)} placeholder="0" />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="sc-sub-panel">
+              <p className="sc-eyebrow" style={{ margin: "0 0 10px" }}>透空圍籬 · 安全走廊</p>
+              <div className="sc-two">
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>透空圍籬長</span><small>轉角/上部</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={tpLen}
+                      onChange={(e) => setTpLen(e.target.value)} placeholder="0" />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>透空段高</span><small>height</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={tpH}
+                      onChange={(e) => setTpH(e.target.value)} placeholder="0" />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+              </div>
+              <div className="sc-two" style={{ marginTop: 11 }}>
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>安全走廊寬</span><small>淨寬 ≥2.4</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={corrWidth}
+                      onChange={(e) => setCorrWidth(e.target.value)} />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+                <div className="sc-field" style={{ marginBottom: 0 }}>
+                  <div className="sc-label"><span>走廊長度</span><small>空=自動 {fmt(r.corrAutoL)}m</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal" value={corrOverride}
+                      onChange={(e) => setCorrOverride(e.target.value)} placeholder={fmt(r.corrAutoL)} />
+                    <span className="sc-unit">m</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="sc-sub-panel">
+              <label className="sc-check">
+                <input type="checkbox" checked={fabricOn} onChange={(e) => setFabricOn(e.target.checked)} />
+                計入隔音／防塵帆布
+              </label>
+              {fabricOn && (
+                <div className="sc-two" style={{ marginTop: 12 }}>
+                  <div className="sc-field" style={{ marginBottom: 0 }}>
+                    <div className="sc-label"><span>套用範圍</span><small></small></div>
+                    <select className="sc-select" value={fabricScope} onChange={(e) => setFabricScope(e.target.value)}>
+                      <option value="road">僅臨路面（{fmt(r.roadL)}m）</option>
+                      <option value="all">全部面（{fmt(r.grossL)}m）</option>
+                    </select>
+                  </div>
+                  <div className="sc-field" style={{ marginBottom: 0 }}>
+                    <div className="sc-label"><span>帆布高</span><small>height</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal" value={fabricH}
+                        onChange={(e) => setFabricH(e.target.value)} />
+                      <span className="sc-unit">m</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── 結果 ── */}
+          <div className="sc-panel">
+            <div className="sc-eyebrowRow">
+              <p className="sc-eyebrow" style={{ margin: 0 }}>面積數量 · Output</p>
+              <button className="sc-copy" data-done={copied} onClick={handleCopy}>
+                {copied ? "已複製 ✓" : "複製估算紀錄"}
+              </button>
+            </div>
+
+            <div className="sc-readouts">
+              <div className="sc-ro">
+                <div className="k">圍籬面數</div>
+                <div className="v">{sides.length}</div>
+                <div className="u">面 · 臨路{r.roadCount}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">總延長</div>
+                <div className="v">{fmt(r.grossL)}</div>
+                <div className="u">m</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">版片面積</div>
+                <div className="v">{fmt(r.panelArea)}</div>
+                <div className="u">㎡</div>
+              </div>
+            </div>
+
+            <div className="sc-brk">
+              <div className="grp">圍籬版片（分高度）</div>
+              {Object.keys(r.panelBuckets).sort((a, b) => a - b).map((k) => (
+                <div className="row" key={k}>
+                  <span className="lab">高 {k} m 版片</span>
+                  <span className="val">{fmt(r.panelBuckets[k])} ㎡</span>
+                </div>
+              ))}
+              <div className="row tot"><span className="lab">版片小計</span><span className="val">{fmt(r.panelArea)} ㎡</span></div>
+
+              <div className="grp">RC 防溢座</div>
+              <div className="row"><span className="lab">30cm 高<small>圍籬&lt;3m · {fmt(r.base30L)}m</small></span><span className="val">{fmt(r.base30A)} ㎡</span></div>
+              <div className="row"><span className="lab">60cm 高<small>圍籬≥3m · {fmt(r.base60L)}m</small></span><span className="val">{fmt(r.base60A)} ㎡</span></div>
+              <div className="row tot"><span className="lab">防溢座小計</span><span className="val">{fmt(r.baseArea)} ㎡</span></div>
+
+              <div className="grp">綠美化（沿街面 {fmt(r.streetNet)} ㎡）</div>
+              <div className="row"><span className="lab">綠化面積<small>{fmt(r.ratio * 100, 0)}% 密植</small></span><span className="val">{fmt(r.greenArea)} ㎡</span></div>
+              <div className="row"><span className="lab">美化面積<small>彩繪/帆布</small></span><span className="val">{fmt(r.beautifyArea)} ㎡</span></div>
+              {r.openDeduct > 0 && (
+                <div className="row muted"><span className="lab">已扣大門/出入口</span><span className="val">−{fmt(r.openDeduct)} ㎡</span></div>
+              )}
+
+              <div className="grp">其他</div>
+              <div className="row"><span className="lab">透空圍籬<small>{fmt(num(tpLen))}m × {fmt(num(tpH))}m</small></span><span className="val">{fmt(r.transArea)} ㎡</span></div>
+              <div className="row"><span className="lab">安全走廊頂蓋<small>{fmt(r.corrL)}m × {fmt(num(corrWidth))}m</small></span><span className="val">{fmt(r.corrArea)} ㎡</span></div>
+              <div className={"row" + (fabricOn ? "" : " muted")}><span className="lab">隔音／防塵帆布<small>{fabricOn ? fmt(r.fabricL) + "m × " + fmt(num(fabricH)) + "m" : "未計"}</small></span><span className="val">{fabricOn ? fmt(r.fabricArea) + " ㎡" : "—"}</span></div>
+            </div>
+
+            <div className="sc-figwrap">
+              <svg className="sc-fig" viewBox={`0 0 ${fig.W} ${fig.H}`} role="img" aria-label="施工圍籬立面示意">
+                <line className="grid" x1="20" y1={fig.y2} x2={fig.W - 20} y2={fig.y2} />
+                {/* 版片 */}
+                <rect className="panel" x={fig.x0} y={fig.y1} width={fig.rightX - fig.x0} height={fig.y2 - fig.y1} />
+                {/* 網狀（上部示意，僅畫線） */}
+                <g className="mesh">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <line key={"v" + i} x1={fig.x0 + 14 + i * ((fig.rightX - fig.x0 - 28) / 7)} y1={fig.y1 + 6}
+                      x2={fig.x0 + 14 + i * ((fig.rightX - fig.x0 - 28) / 7)} y2={fig.y1 + 34} />
+                  ))}
+                  <line x1={fig.x0 + 8} y1={fig.y1 + 6} x2={fig.rightX - 8} y2={fig.y1 + 6} />
+                  <line x1={fig.x0 + 8} y1={fig.y1 + 34} x2={fig.rightX - 8} y2={fig.y1 + 34} />
+                </g>
+                {/* 防溢座 */}
+                <rect className="base" x={fig.x0} y={fig.baseTop} width={fig.rightX - fig.x0} height={fig.y2 - fig.baseTop} />
+                {/* 高度標註 */}
+                <line className="dimline" x1={fig.x0 - 16} y1={fig.y1} x2={fig.x0 - 16} y2={fig.y2} />
+                <text className="dim" x={fig.x0 - 20} y={(fig.y1 + fig.y2) / 2} textAnchor="end" dominantBaseline="middle">
+                  版片 {fmt(fig.totalH)}m
+                </text>
+                <text className="lbl" x={fig.rightX + 6} y={(fig.baseTop + fig.y2) / 2 + 4}>
+                  防溢座 {fmt(fig.baseHm * 100, 0)}cm
+                </text>
+                <text className="dim" x={fig.rightX + 6} y={fig.y1 + 22}>網狀/透空</text>
+              </svg>
+            </div>
+
+            <div className="sc-info" dangerouslySetInnerHTML={{ __html: `<b>${CITY[city].name}</b>　${CITY[city].note}` }} />
+          </div>
+        </div>
+
+        <p className="sc-foot">
+          計算方式：版片面積＝各面 長×高（分高度加總，含活動門版片）；RC 防溢座＝各面長×防溢座高（圍籬≥3m 取 60cm、否則 30cm）；
+          綠美化沿街面＝路寬 ≥ 門檻各面之 長×高，扣除大門/出入口後，依比例分為綠化（密植）與美化（彩繪/帆布）；
+          安全走廊＝路寬 ≥ 門檻且面長 ≥10m 各面之長×走廊寬（頂蓋面積）；透空圍籬與隔音帆布另依輸入計。
+          三市門檻已預填但可覆寫——臺北綠美化 ≥10m、桃園 ≥8m（或都市計畫道路）、安全走廊新北 ≥12m 且臨接長 ≥10m。
+          本工具僅供估算與報價，實際數量請以核定圖說、都市設計審議、道路挖掘許可及各市最新法規與主管機關認定為準。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<FenceCalculator />);
+
+  </script>
+</body>
+</html>

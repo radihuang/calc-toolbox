@@ -47,6 +47,9 @@ const CSS = `
   .sc-headL{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
   .sc-title{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0;}
   .sc-sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+  .sc-back{font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:4px 10px;background:#fff;transition:.12s;}
+  .sc-back:hover{border-color:var(--accent);color:var(--accent);}
   .sc-rule{height:1px;background:var(--line);margin:14px 0 20px;}
   .sc-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);
     font-weight:600;margin:0 0 10px;}
@@ -394,9 +397,12 @@ function SlopeCalculator() {
             <h1 className="sc-title">坡度計算機</h1>
             <span className="sc-sub">Slope / Grade · 工地 · 設計 · 滑雪</span>
           </div>
-          <div className="sc-seg">
-            <button data-on={mode === "forward"} onClick={() => setMode("forward")}>正算</button>
-            <button data-on={mode === "reverse"} onClick={() => setMode("reverse")}>反算</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="sc-seg">
+              <button data-on={mode === "forward"} onClick={() => setMode("forward")}>正算</button>
+              <button data-on={mode === "reverse"} onClick={() => setMode("reverse")}>反算</button>
+            </div>
+            <a className="sc-back" href="../">← 工具箱</a>
           </div>
         </div>
         <div className="sc-rule" />

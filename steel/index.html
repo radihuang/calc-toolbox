@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>鋼構重量計算機 · Steel Weight Calculator</title>
+  <meta name="description" content="輸入鋼材類型與斷面尺寸，即時計算 TS 方管、BOX 矩管（可加內隔板）、BH 組合 H 型鋼的單位重與總重，附斷面示意圖與規格字串，可一鍵複製估算紀錄。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='6' width='20' height='20' rx='1.5' fill='none' stroke='%231E241F' stroke-width='2.5'/><rect x='12' y='12' width='8' height='8' fill='none' stroke='%231C6E63' stroke-width='2.5'/></svg>" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #EBEEE9; }
+    #root { min-height: 100vh; }
+    #boot { font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+      color: #5C635A; text-align: center; padding: 80px 20px; font-size: 14px; }
+  </style>
+
+  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build）。版本已釘死：Babel 7.x 預設走 classic runtime，避免 Babel 8 產生瀏覽器無法解析的 jsx-runtime import -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"><div id="boot">載入中…</div></div>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+// 鋼構重量計算機 — TS 方管 / BOX 矩管（可加橫隔板）/ BH 組合 H 型鋼
+// 單位重、總重、總噸，附斷面示意圖與規格字串，一鍵複製估算紀錄。
+// 鋼材密度統一 7.85 kg/dm³（7850 kg/m³）；斷面以尖角近似（不計圓角），為快速估算值。
+// 鋼種僅影響規格標示，不影響重量。
+
+const CSS = `
+  .sc-wrap{
+    --paper:#EBEEE9; --panel:#F8F9F6; --ink:#1E241F; --ink-2:#5C635A;
+    --line:#CDD3C9; --accent:#1C6E63; --accent-soft:#DCEAE5;
+    --ok:#2E7D4F; --warn:#B0781A; --bad:#AF3A2E;
+    --grid:#DCE1D8;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    min-height:100%; padding:22px; box-sizing:border-box;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sc-shell{max-width:860px;margin:0 auto;}
+  .sc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    justify-content:space-between;margin-bottom:4px;}
+  .sc-headL{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .sc-title{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0;}
+  .sc-sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+  .sc-back{font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:4px 10px;background:#fff;transition:.12s;}
+  .sc-back:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-rule{height:1px;background:var(--line);margin:14px 0 20px;}
+  .sc-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);
+    font-weight:600;margin:0 0 10px;}
+
+  .sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:640px){.sc-grid{grid-template-columns:1fr;}}
+
+  .sc-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;}
+
+  .sc-field{margin-bottom:14px;}
+  .sc-field:last-child{margin-bottom:0;}
+  .sc-label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;font-weight:600;margin-bottom:6px;}
+  .sc-label small{font-weight:400;color:var(--ink-2);font-family:var(--mono);font-size:11px;}
+  .sc-inputrow{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:9px;
+    overflow:hidden;background:#fff;transition:border-color .15s,box-shadow .15s;}
+  .sc-inputrow:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .sc-pre{display:flex;align-items:center;padding:0 4px 0 12px;font-family:var(--mono);
+    font-size:18px;color:var(--ink-2);}
+  .sc-input{flex:1;min-width:0;border:0;outline:0;background:transparent;
+    font-family:var(--mono);font-size:20px;padding:11px 12px;color:var(--ink);width:100%;}
+  .sc-unit{display:flex;align-items:center;padding:0 12px;font-family:var(--mono);
+    font-size:12px;color:var(--ink-2);background:#F0F2ED;border-left:1px solid var(--line);}
+  .sc-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  .sc-select{width:100%;border:1px solid var(--line);border-radius:9px;background:#fff;
+    font-family:var(--sans);font-size:14px;padding:11px 12px;color:var(--ink);
+    outline:0;transition:border-color .15s,box-shadow .15s;cursor:pointer;}
+  .sc-select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+
+  .sc-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;flex-wrap:wrap;}
+  .sc-seg button{border:0;background:transparent;font-family:var(--sans);font-size:12px;
+    padding:7px 11px;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
+  .sc-seg button+button{border-left:1px solid var(--line);}
+  .sc-seg button[data-on="true"]{background:var(--ink);color:#fff;font-weight:600;}
+  .sc-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+
+  .sc-presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .sc-chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:5px 11px;
+    font-size:11.5px;font-family:var(--mono);color:var(--ink-2);cursor:pointer;transition:.12s;}
+  .sc-chip:hover{border-color:var(--accent);color:var(--accent);}
+  .sc-chip[data-on="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-scen{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:18px;}
+  .sc-scenLab{font-size:11px;letter-spacing:.1em;color:var(--ink-2);font-weight:600;}
+  .sc-chip-scen{font-family:var(--mono);font-size:11.5px;padding:6px 11px;}
+  .sc-chip-scen:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-sub-panel{background:#fff;border:1px solid var(--line);border-radius:9px;
+    padding:12px 12px 13px;margin-top:12px;}
+  .sc-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;}
+  .sc-check input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;}
+
+  .sc-eyebrowRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .sc-copy{border:1px solid var(--line);background:#fff;border-radius:7px;font-family:var(--sans);
+    font-size:11.5px;color:var(--ink-2);padding:5px 11px;cursor:pointer;transition:.12s;}
+  .sc-copy:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .sc-copy:disabled{opacity:.45;cursor:default;}
+  .sc-copy[data-done="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .sc-readouts{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:2px;}
+  .sc-ro{background:var(--panel);padding:13px 12px;text-align:center;}
+  .sc-ro .k{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:600;}
+  .sc-ro .v{font-family:var(--mono);font-size:24px;font-weight:600;letter-spacing:-.02em;
+    line-height:1.15;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .sc-ro .u{font-family:var(--mono);font-size:12px;color:var(--ink-2);}
+  .sc-ro .sub{font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:3px;}
+
+  .sc-result{margin-top:14px;border:1px solid var(--accent);background:var(--accent-soft);
+    border-radius:10px;padding:11px 14px;display:flex;align-items:baseline;
+    justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .sc-result .lab{font-size:12.5px;color:var(--ink);font-weight:600;}
+  .sc-result .val{font-family:var(--mono);font-size:15px;font-weight:650;color:var(--accent);
+    font-variant-numeric:tabular-nums;word-break:break-all;text-align:right;}
+
+  .sc-brk{margin-top:12px;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .sc-brk .row{display:flex;justify-content:space-between;padding:8px 12px;font-size:12.5px;
+    background:#fff;border-top:1px solid var(--line);}
+  .sc-brk .row:first-child{border-top:0;}
+  .sc-brk .row.tot{font-weight:700;background:var(--accent-soft);}
+  .sc-brk .row span:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+
+  .sc-figwrap{margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:6px 6px 2px;overflow:hidden;}
+  .sc-fig{display:block;width:100%;height:auto;}
+  .sc-fig .grid{stroke:var(--grid);stroke-width:1;}
+  .sc-fig .steel{stroke:var(--ink);stroke-width:1.6;fill:#DFE7E2;}
+  .sc-fig .hole{fill:#fff;stroke:var(--ink);stroke-width:1.2;}
+  .sc-fig .plate{fill:var(--accent);opacity:.85;}
+  .sc-fig .dimline{stroke:var(--ink-2);stroke-width:1;}
+  .sc-fig text{font-family:var(--mono);fill:var(--ink);}
+  .sc-fig .dim{fill:var(--ink-2);font-size:11px;}
+  .sc-fig .lbl{fill:var(--accent);font-size:12px;font-weight:600;}
+
+  .sc-note{font-size:11px;color:var(--ink-2);line-height:1.45;margin-top:8px;}
+  .sc-foot{margin-top:22px;font-size:11px;color:var(--ink-2);line-height:1.55;}
+  .sc-err{color:var(--bad);font-size:12.5px;margin-top:8px;font-weight:600;}
+  @media(prefers-reduced-motion:reduce){.sc-inputrow{transition:none;}}
+`;
+
+const DENSITY = 7.85; // kg/dm³ = 7850 kg/m³
+
+const fmt = (x, dp = 2) => {
+  if (!isFinite(x)) return "—";
+  const r = Number(x.toFixed(dp));
+  return r.toLocaleString("en-US", { maximumFractionDigits: dp, minimumFractionDigits: dp });
+};
+const fmtInt = (x) => (!isFinite(x) ? "—" : Math.round(x).toLocaleString("en-US"));
+
+// ── 鋼種（僅影響規格標示，不影響重量）──
+const GRADE_GROUPS = [
+  { label: "結構用圓管", items: ["STK400", "STK490", "STK540", "STKN400W（耐震）", "STKN490B（耐震）"] },
+  { label: "結構用角/方管", items: ["STKR400", "STKR490", "BCR295（冷壓）", "BCP325（冷軋）"] },
+  { label: "板材：一般結構", items: ["SS400"] },
+  { label: "板材：銲接結構", items: ["SM400A（銲接）", "SM400B（銲接）", "SM400C（銲接）", "SM490A（銲接）", "SM490B（銲接）", "SM490C（銲接）"] },
+  { label: "板材：耐震建築", items: ["SN400A（耐震）", "SN400B（耐震）", "SN400C（耐震）", "SN490B（耐震）", "SN490C（耐震）"] },
+];
+const gradeToken = (g) => g.replace(/（.*/, ""); // 去掉括號註記，取鋼種代號
+
+// ── 常用斷面 preset ──
+const PRESETS = {
+  ts: [
+    { label: "100×100×6", s: { w: "100", h: "100", t: "6" } },
+    { label: "150×150×6", s: { w: "150", h: "150", t: "6" } },
+    { label: "200×200×9", s: { w: "200", h: "200", t: "9" } },
+    { label: "300×300×9", s: { w: "300", h: "300", t: "9" } },
+    { label: "400×400×12", s: { w: "400", h: "400", t: "12" } },
+  ],
+  box: [
+    { label: "200×100×6", s: { w: "200", h: "100", t: "6" } },
+    { label: "300×200×9", s: { w: "300", h: "200", t: "9" } },
+    { label: "400×200×12", s: { w: "400", h: "200", t: "12" } },
+    { label: "500×300×16", s: { w: "500", h: "300", t: "16" } },
+  ],
+  bh: [
+    { label: "300×150×6.5×9", s: { h: "300", b: "150", tw: "6.5", tf: "9" } },
+    { label: "400×200×8×13", s: { h: "400", b: "200", tw: "8", tf: "13" } },
+    { label: "500×200×10×16", s: { h: "500", b: "200", tw: "10", tf: "16" } },
+    { label: "600×200×11×17", s: { h: "600", b: "200", tw: "11", tf: "17" } },
+    { label: "700×300×13×24", s: { h: "700", b: "300", tw: "13", tf: "24" } },
+  ],
+};
+
+const TYPES = [
+  { id: "ts", label: "TS 方管" },
+  { id: "box", label: "BOX 矩管" },
+  { id: "bh", label: "BH H型鋼" },
+];
+
+function SteelCalculator() {
+  const [type, setType] = useState("ts");
+  const [grade, setGrade] = useState("STKR400");
+  const [length, setLength] = useState("9"); // m
+
+  // TS / BOX 共用尺寸
+  const [w, setW] = useState("300");
+  const [h, setH] = useState("300");
+  const [t, setT] = useState("9");
+
+  // BOX 內隔板
+  const [hasPlate, setHasPlate] = useState(false);
+  const [ptS, setPtS] = useState("9");   // 板厚 mm
+  const [spacS, setSpacS] = useState("300"); // 間距 mm（>0 則由此推算片數）
+  const [cntS, setCntS] = useState("1"); // 直接指定片數
+
+  // BH
+  const [bhH, setBhH] = useState("600");
+  const [bhB, setBhB] = useState("400");
+  const [bhTw, setBhTw] = useState("12");
+  const [bhTf, setBhTf] = useState("22");
+
+  const [copied, setCopied] = useState(false);
+
+  const applyPreset = (p) => {
+    const s = p.s;
+    if (type === "bh") {
+      setBhH(s.h); setBhB(s.b); setBhTw(s.tw); setBhTf(s.tf);
+    } else {
+      setW(s.w); setH(s.h); setT(s.t);
+    }
+  };
+
+  const L = parseFloat(length);
+
+  const calc = useMemo(() => {
+    if (!(L >= 0)) return null;
+
+    if (type === "ts" || type === "box") {
+      const W = parseFloat(w), H = parseFloat(h), T = parseFloat(t);
+      if (!(W > 0) || !(H > 0) || !(T > 0)) return null;
+      if (W - 2 * T <= 0 || H - 2 * T <= 0) return { invalid: "thickness" };
+
+      // 管體單位重 kg/m：斷面積[mm²] × 7.85 / 1000
+      const area = ((W + H) * 2 - 4 * T) * T; // mm²
+      const tubeUnit = (area * DENSITY) / 1000; // kg/m
+      const tubeTotal = tubeUnit * L;
+
+      // 內隔板（僅 BOX，橫隔板 transverse diaphragm）
+      let plate = null;
+      if (type === "box" && hasPlate) {
+        const tp = parseFloat(ptS);
+        const spac = parseFloat(spacS);
+        const Wi = W - 2 * T, Hi = H - 2 * T; // 內淨尺寸 mm
+        if (tp > 0 && Wi > 0 && Hi > 0) {
+          let n;
+          if (spac > 0 && L > 0) n = Math.max(1, Math.floor((L * 1000) / spac));
+          else n = Math.max(0, Math.floor(parseFloat(cntS) || 0));
+          // 每片重量 kg：Wi×Hi×tp[mm³] × 7850 kg/m³ = × 7.85e-6
+          const wPer = (Wi * Hi * tp * DENSITY) / 1e6;
+          const total = wPer * n;
+          plate = { tp, spac, n, wPer, total, byCount: !(spac > 0) };
+        }
+      }
+
+      const plateTotal = plate ? plate.total : 0;
+      const grand = tubeTotal + plateTotal;
+      const spec = `${type.toUpperCase()} ${fmt(W, 0)}×${fmt(H, 0)}×${fmt(T, 0)}` +
+        (plate ? ` +隔板 ${fmt(plate.tp, 0)}t×${plate.n}片` : "");
+
+      return { kind: type, W, H, T, area, tubeUnit, tubeTotal, plate, plateTotal, grand, spec };
+    }
+
+    // BH
+    const H = parseFloat(bhH), B = parseFloat(bhB), tw = parseFloat(bhTw), tf = parseFloat(bhTf);
+    if (!(H > 0) || !(B > 0) || !(tw > 0) || !(tf > 0)) return null;
+    if (H - 2 * tf <= 0) return { invalid: "flange" };
+    const area = 2 * B * tf + (H - 2 * tf) * tw; // mm²
+    const unit = (area * DENSITY) / 1000; // kg/m
+    const grand = unit * L;
+    const spec = `BH ${fmt(H, 0)}×${fmt(B, 0)}×${fmt(tw, 0)}×${fmt(tf, 0)}`;
+    return { kind: "bh", H, B, tw, tf, area, tubeUnit: unit, grand, spec };
+  }, [type, w, h, t, hasPlate, ptS, spacS, cntS, bhH, bhB, bhTw, bhTf, L]);
+
+  const ok = calc && !calc.invalid;
+  const unitWeight = ok ? calc.tubeUnit : NaN;
+  const totalWeight = ok ? calc.grand : NaN;
+
+  // ── 斷面示意圖幾何 ──
+  const fig = useMemo(() => {
+    if (!ok) return null;
+    const W = 320, H = 220;
+    if (calc.kind === "ts" || calc.kind === "box") {
+      const bw = calc.W, bh = calc.H;
+      const k = Math.min(180 / bw, 150 / bh);
+      const w0 = bw * k, h0 = bh * k;
+      const x0 = 60 + (180 - w0) / 2, y0 = 20 + (150 - h0) / 2;
+      const tk = calc.T * k;
+      return { kind: calc.kind, W, H, x0, y0, w0, h0, tk, k, plate: calc.plate };
+    }
+    // BH
+    const bw = calc.B, bh = calc.H;
+    const k = Math.min(150 / bw, 160 / bh);
+    const w0 = bw * k, h0 = bh * k;
+    const x0 = 70 + (150 - w0) / 2, y0 = 18 + (160 - h0) / 2;
+    const tfk = calc.tf * k, twk = calc.tw * k;
+    const webL = x0 + (w0 - twk) / 2, webR = x0 + (w0 + twk) / 2;
+    const pts = [
+      [x0, y0], [x0 + w0, y0], [x0 + w0, y0 + tfk], [webR, y0 + tfk],
+      [webR, y0 + h0 - tfk], [x0 + w0, y0 + h0 - tfk], [x0 + w0, y0 + h0],
+      [x0, y0 + h0], [x0, y0 + h0 - tfk], [webL, y0 + h0 - tfk],
+      [webL, y0 + tfk], [x0, y0 + tfk],
+    ].map((p) => p.join(",")).join(" ");
+    return { kind: "bh", W, H, x0, y0, w0, h0, tfk, twk, webL, webR, pts };
+  }, [ok, calc]);
+
+  const handleCopy = async () => {
+    if (!ok) return;
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const gtok = gradeToken(grade);
+    let body =
+      `規格：${calc.spec}　${gtok}\n` +
+      `長度：${fmt(L, 2)} m\n` +
+      `單位重：${fmt(unitWeight, 2)} kg/m　總重：${fmtInt(totalWeight)} kg（${fmt(totalWeight / 1000, 3)} t）`;
+    if (calc.plate) {
+      body += `\n　管體 ${fmtInt(calc.tubeTotal)} kg＋隔板 ${fmtInt(calc.plateTotal)} kg` +
+        `（${fmt(calc.plate.wPer, 1)} kg/片 × ${calc.plate.n} 片，${calc.plate.byCount ? "指定片數" : `@${fmt(calc.plate.spac, 0)}mm`}）`;
+    }
+    const txt =
+      `── 鋼構重量估算 ──\n${ts}\n${body}\n\n` +
+      `密度 7.85 kg/dm³；斷面以尖角近似（不計圓角）。鋼種僅為標示。\n` +
+      `本估算僅供快速研判與報價，實際下料以廠商規格表與加工圖為準。`;
+    try {
+      await navigator.clipboard.writeText(txt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (e) {}
+  };
+
+  const dimTxt = ok ? calc.spec.replace(/ \+隔板.*$/, "") : "";
+
+  return (
+    <div className="sc-wrap">
+      <style>{CSS}</style>
+      <div className="sc-shell">
+        <div className="sc-head">
+          <div className="sc-headL">
+            <h1 className="sc-title">鋼構重量計算機</h1>
+            <span className="sc-sub">Steel Weight · TS · BOX · BH</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div className="sc-seg">
+              {TYPES.map((tp) => (
+                <button key={tp.id} data-on={type === tp.id} onClick={() => setType(tp.id)}>{tp.label}</button>
+              ))}
+            </div>
+            <a className="sc-back" href="../">← 工具箱</a>
+          </div>
+        </div>
+        <div className="sc-rule" />
+
+        <div className="sc-scen">
+          <span className="sc-scenLab">常用斷面</span>
+          {PRESETS[type].map((p) => (
+            <button key={p.label} className="sc-chip sc-chip-scen" onClick={() => applyPreset(p)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="sc-grid">
+          {/* 輸入 */}
+          <div className="sc-panel">
+            <p className="sc-eyebrow">輸入 · Input</p>
+
+            {type !== "bh" ? (
+              <>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>外寬 W</span><small>width</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={w} onChange={(e) => setW(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">mm</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>外高 H</span><small>height</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={h} onChange={(e) => setH(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">mm</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-field">
+                  <div className="sc-label"><span>壁厚 t</span><small>wall thickness</small></div>
+                  <div className="sc-inputrow">
+                    <input className="sc-input" type="number" inputMode="decimal"
+                      value={t} onChange={(e) => setT(e.target.value)} placeholder="0" />
+                    <span className="sc-unit">mm</span>
+                  </div>
+                </div>
+
+                {type === "box" && (
+                  <div className="sc-sub-panel">
+                    <label className="sc-check">
+                      <input type="checkbox" checked={hasPlate} onChange={(e) => setHasPlate(e.target.checked)} />
+                      加入內隔板（橫隔板）
+                    </label>
+                    {hasPlate && (
+                      <div style={{ marginTop: 12 }}>
+                        <div className="sc-two">
+                          <div className="sc-field">
+                            <div className="sc-label"><span>板厚</span><small>tp</small></div>
+                            <div className="sc-inputrow">
+                              <input className="sc-input" style={{ fontSize: 16, padding: "9px 10px" }} type="number" inputMode="decimal"
+                                value={ptS} onChange={(e) => setPtS(e.target.value)} placeholder="0" />
+                              <span className="sc-unit">mm</span>
+                            </div>
+                          </div>
+                          <div className="sc-field">
+                            <div className="sc-label"><span>間距</span><small>0＝用片數</small></div>
+                            <div className="sc-inputrow">
+                              <span className="sc-pre" style={{ fontSize: 15 }}>@</span>
+                              <input className="sc-input" style={{ fontSize: 16, padding: "9px 8px" }} type="number" inputMode="decimal"
+                                value={spacS} onChange={(e) => setSpacS(e.target.value)} placeholder="0" />
+                              <span className="sc-unit">mm</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="sc-field" style={{ marginBottom: 0 }}>
+                          <div className="sc-label"><span>片數</span><small>間距為 0 時採用</small></div>
+                          <div className="sc-inputrow" style={{ maxWidth: 160 }}>
+                            <input className="sc-input" style={{ fontSize: 16, padding: "9px 10px" }} type="number" inputMode="numeric"
+                              min="0" step="1" value={cntS} onChange={(e) => setCntS(e.target.value)} placeholder="0"
+                              disabled={parseFloat(spacS) > 0} />
+                            <span className="sc-unit">片</span>
+                          </div>
+                        </div>
+                        <div className="sc-note">
+                          隔板為填滿內淨斷面（{ok && calc.plate ? `${fmt(calc.W - 2 * calc.T, 0)}×${fmt(calc.H - 2 * calc.T, 0)}mm` : "內寬×內高"}）的橫隔板；
+                          設間距則依長度自動算片數，否則採指定片數。
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>高 H</span><small>成形高</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={bhH} onChange={(e) => setBhH(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">mm</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>寬 B</span><small>翼板寬</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={bhB} onChange={(e) => setBhB(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">mm</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="sc-two">
+                  <div className="sc-field">
+                    <div className="sc-label"><span>腹板厚 tw</span><small>web</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={bhTw} onChange={(e) => setBhTw(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">mm</span>
+                    </div>
+                  </div>
+                  <div className="sc-field">
+                    <div className="sc-label"><span>翼板厚 tf</span><small>flange</small></div>
+                    <div className="sc-inputrow">
+                      <input className="sc-input" type="number" inputMode="decimal"
+                        value={bhTf} onChange={(e) => setBhTf(e.target.value)} placeholder="0" />
+                      <span className="sc-unit">mm</span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="sc-two" style={{ marginTop: 4 }}>
+              <div className="sc-field">
+                <div className="sc-label"><span>長度</span><small>length</small></div>
+                <div className="sc-inputrow">
+                  <input className="sc-input" type="number" inputMode="decimal"
+                    value={length} onChange={(e) => setLength(e.target.value)} placeholder="0" />
+                  <span className="sc-unit">m</span>
+                </div>
+              </div>
+              <div className="sc-field">
+                <div className="sc-label"><span>鋼種</span><small>標示用</small></div>
+                <select className="sc-select" value={grade} onChange={(e) => setGrade(e.target.value)}>
+                  {GRADE_GROUPS.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.items.map((it) => <option key={it} value={it}>{it}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {calc && calc.invalid === "thickness" && (
+              <p className="sc-err">壁厚過大：2×壁厚已 ≥ 外寬或外高，斷面不成立，請確認輸入。</p>
+            )}
+            {calc && calc.invalid === "flange" && (
+              <p className="sc-err">翼板過厚：2×翼板厚已 ≥ 成形高 H，斷面不成立，請確認輸入。</p>
+            )}
+          </div>
+
+          {/* 結果 + 斷面圖 */}
+          <div className="sc-panel">
+            <div className="sc-eyebrowRow">
+              <p className="sc-eyebrow" style={{ margin: 0 }}>結果 · Output</p>
+              <button className="sc-copy" data-done={copied} onClick={handleCopy} disabled={!ok}>
+                {copied ? "已複製 ✓" : "複製估算紀錄"}
+              </button>
+            </div>
+
+            <div className="sc-readouts">
+              <div className="sc-ro">
+                <div className="k">單位重</div>
+                <div className="v">{ok ? fmt(unitWeight, 2) : "—"}</div>
+                <div className="u">kg/m</div>
+                <div className="sub">{calc && calc.plate ? "管體" : "斷面"}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">總重</div>
+                <div className="v">{ok ? fmtInt(totalWeight) : "—"}</div>
+                <div className="u">kg</div>
+                <div className="sub">{ok ? `× ${fmt(L, 1)} m` : ""}</div>
+              </div>
+              <div className="sc-ro">
+                <div className="k">總重（噸）</div>
+                <div className="v">{ok ? fmt(totalWeight / 1000, 3) : "—"}</div>
+                <div className="u">t</div>
+                <div className="sub">metric ton</div>
+              </div>
+            </div>
+
+            <div className="sc-result">
+              <span className="lab">規格</span>
+              <span className="val">{ok ? `${calc.spec} ${gradeToken(grade)}` : "—"}</span>
+            </div>
+
+            {ok && calc.plate && (
+              <div className="sc-brk">
+                <div className="row"><span>管體重量</span><span>{fmtInt(calc.tubeTotal)} kg</span></div>
+                <div className="row">
+                  <span>隔板重量（{fmt(calc.plate.wPer, 1)} kg/片 × {calc.plate.n} 片）</span>
+                  <span>{fmtInt(calc.plateTotal)} kg</span>
+                </div>
+                <div className="row tot"><span>合計</span><span>{fmtInt(calc.grand)} kg</span></div>
+              </div>
+            )}
+
+            <div className="sc-figwrap">
+              {fig ? (
+                <svg className="sc-fig" viewBox={`0 0 ${fig.W} ${fig.H}`} role="img"
+                  aria-label={`${TYPES.find((x) => x.id === type).label} 斷面示意圖`}>
+                  {fig.kind === "bh" ? (
+                    <g>
+                      <polygon className="steel" points={fig.pts} />
+                      {/* H 標註（左） */}
+                      <line className="dimline" x1={fig.x0 - 14} x2={fig.x0 - 14} y1={fig.y0} y2={fig.y0 + fig.h0} />
+                      <text className="dim" x={fig.x0 - 20} y={fig.y0 + fig.h0 / 2} textAnchor="end" dominantBaseline="middle">H {fmt(calc.H, 0)}</text>
+                      {/* B 標註（下） */}
+                      <line className="dimline" x1={fig.x0} x2={fig.x0 + fig.w0} y1={fig.y0 + fig.h0 + 14} y2={fig.y0 + fig.h0 + 14} />
+                      <text className="dim" x={fig.x0 + fig.w0 / 2} y={fig.y0 + fig.h0 + 28} textAnchor="middle">B {fmt(calc.B, 0)}</text>
+                      {/* tw / tf */}
+                      <text className="dim" x={fig.webR + 4} y={fig.y0 + fig.h0 / 2} dominantBaseline="middle">tw {fmt(calc.tw, 1)}</text>
+                      <text className="dim" x={fig.x0 + fig.w0 + 6} y={fig.y0 + fig.tfk / 2 + 4}>tf {fmt(calc.tf, 1)}</text>
+                    </g>
+                  ) : (
+                    <g>
+                      <rect className="steel" x={fig.x0} y={fig.y0} width={fig.w0} height={fig.h0} />
+                      <rect className="hole" x={fig.x0 + fig.tk} y={fig.y0 + fig.tk}
+                        width={Math.max(fig.w0 - 2 * fig.tk, 0)} height={Math.max(fig.h0 - 2 * fig.tk, 0)} />
+                      {fig.plate && (
+                        <rect className="plate" x={fig.x0 + fig.tk} y={fig.y0 + fig.tk}
+                          width={Math.max(fig.w0 - 2 * fig.tk, 0)} height={Math.max(fig.h0 - 2 * fig.tk, 0)}
+                          opacity="0.32" />
+                      )}
+                      {/* W 標註（下） */}
+                      <line className="dimline" x1={fig.x0} x2={fig.x0 + fig.w0} y1={fig.y0 + fig.h0 + 14} y2={fig.y0 + fig.h0 + 14} />
+                      <text className="dim" x={fig.x0 + fig.w0 / 2} y={fig.y0 + fig.h0 + 28} textAnchor="middle">W {fmt(calc.W, 0)}</text>
+                      {/* H 標註（左） */}
+                      <line className="dimline" x1={fig.x0 - 14} x2={fig.x0 - 14} y1={fig.y0} y2={fig.y0 + fig.h0} />
+                      <text className="dim" x={fig.x0 - 20} y={fig.y0 + fig.h0 / 2} textAnchor="end" dominantBaseline="middle">H {fmt(calc.H, 0)}</text>
+                      {/* t */}
+                      <text className="dim" x={fig.x0 + fig.w0 + 6} y={fig.y0 + fig.tk / 2 + 5}>t {fmt(calc.T, 0)}</text>
+                      {fig.plate && (
+                        <text className="lbl" x={fig.x0 + fig.w0 / 2} y={fig.y0 + fig.h0 / 2 + 4} textAnchor="middle">隔板 ×{fig.plate.n}</text>
+                      )}
+                    </g>
+                  )}
+                </svg>
+              ) : (
+                <svg className="sc-fig" viewBox="0 0 320 200" aria-hidden="true">
+                  <text x="160" y="100" textAnchor="middle" className="dim">輸入尺寸以顯示斷面</text>
+                </svg>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <p className="sc-foot">
+          單位重 = 斷面積 × 密度：TS／BOX 斷面積 =〔(W＋H)×2 − 4t〕× t；BH 斷面積 = 2·B·tf ＋ (H − 2tf)·tw；
+          鋼材密度統一 7.85 kg/dm³（7850 kg/m³）。斷面以尖角近似、不計圓角與圓弧，實際型鋼另含圓角故略輕，
+          此值為快速估算。BOX 內隔板以填滿內淨斷面之橫隔板計，每片重量 = 內寬×內高×板厚×密度，乘以片數；
+          設隔板間距則依構材長度自動推算片數。鋼種僅供規格標示，不影響重量。
+          本工具僅供快速研判、估重與報價，實際下料與計價請以廠商規格表、加工圖及最新規範為準。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<SteelCalculator />);
+
+  </script>
+</body>
+</html>

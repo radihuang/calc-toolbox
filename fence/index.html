@@ -133,6 +133,7 @@ const CSS = `
   .sc-fig .panel{fill:#E4EAE4;stroke:var(--ink);stroke-width:1.6;}
   .sc-fig .base{fill:var(--ink-2);opacity:.85;}
   .sc-fig .mesh{fill:none;stroke:var(--accent);stroke-width:1;}
+  .sc-fig .fabric{fill:var(--accent);opacity:.22;stroke:var(--accent);stroke-width:1;stroke-dasharray:3 2;}
   .sc-fig .dimline{stroke:var(--ink-2);stroke-width:1;}
   .sc-fig text{font-family:var(--mono);fill:var(--ink);}
   .sc-fig .dim{fill:var(--ink-2);font-size:11px;}
@@ -305,7 +306,11 @@ function FenceCalculator() {
     const pxPerM = (y2 - y1) / Math.max(totalH, 2.4);
     const baseTop = y2 - baseHm * pxPerM;
     const rightX = W - 30;
-    return { W, H, x0, y1, y2, baseTop, rightX, totalH, baseHm };
+    const meshHm = Math.min(num(tpH), totalH);           // 透空段高（僅有輸入透空圍籬長時顯示）
+    const meshBottom = y1 + meshHm * pxPerM;
+    const fabricHm = Math.min(num(fabricH), totalH);     // 隔音／防塵帆布高
+    const fabricTop = y2 - fabricHm * pxPerM;
+    return { W, H, x0, y1, y2, baseTop, rightX, totalH, baseHm, meshHm, meshBottom, fabricHm, fabricTop };
   })();
 
   return (
@@ -527,15 +532,21 @@ function FenceCalculator() {
                 <line className="grid" x1="20" y1={fig.y2} x2={fig.W - 20} y2={fig.y2} />
                 {/* 版片 */}
                 <rect className="panel" x={fig.x0} y={fig.y1} width={fig.rightX - fig.x0} height={fig.y2 - fig.y1} />
-                {/* 網狀（上部示意，僅畫線） */}
-                <g className="mesh">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <line key={"v" + i} x1={fig.x0 + 14 + i * ((fig.rightX - fig.x0 - 28) / 7)} y1={fig.y1 + 6}
-                      x2={fig.x0 + 14 + i * ((fig.rightX - fig.x0 - 28) / 7)} y2={fig.y1 + 34} />
-                  ))}
-                  <line x1={fig.x0 + 8} y1={fig.y1 + 6} x2={fig.rightX - 8} y2={fig.y1 + 6} />
-                  <line x1={fig.x0 + 8} y1={fig.y1 + 34} x2={fig.rightX - 8} y2={fig.y1 + 34} />
-                </g>
+                {/* 透空圍籬（上部網狀，僅在有輸入透空圍籬長時顯示） */}
+                {num(tpLen) > 0 && fig.meshHm > 0 && (
+                  <g className="mesh">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <line key={"v" + i} x1={fig.x0 + 14 + i * ((fig.rightX - fig.x0 - 28) / 7)} y1={fig.y1 + 3}
+                        x2={fig.x0 + 14 + i * ((fig.rightX - fig.x0 - 28) / 7)} y2={fig.meshBottom - 3} />
+                    ))}
+                    <line x1={fig.x0 + 8} y1={fig.y1 + 3} x2={fig.rightX - 8} y2={fig.y1 + 3} />
+                    <line x1={fig.x0 + 8} y1={fig.meshBottom - 3} x2={fig.rightX - 8} y2={fig.meshBottom - 3} />
+                  </g>
+                )}
+                {/* 隔音／防塵帆布（勾選後顯示，覆蓋自地面起算之帆布高範圍） */}
+                {fabricOn && fig.fabricHm > 0 && (
+                  <rect className="fabric" x={fig.x0} y={fig.fabricTop} width={fig.rightX - fig.x0} height={fig.y2 - fig.fabricTop} />
+                )}
                 {/* 防溢座 */}
                 <rect className="base" x={fig.x0} y={fig.baseTop} width={fig.rightX - fig.x0} height={fig.y2 - fig.baseTop} />
                 {/* 高度標註 */}
@@ -546,7 +557,12 @@ function FenceCalculator() {
                 <text className="lbl" x={fig.rightX + 6} y={(fig.baseTop + fig.y2) / 2 + 4}>
                   防溢座 {fmt(fig.baseHm * 100, 0)}cm
                 </text>
-                <text className="dim" x={fig.rightX + 6} y={fig.y1 + 22}>網狀/透空</text>
+                {num(tpLen) > 0 && fig.meshHm > 0 && (
+                  <text className="dim" x={fig.rightX + 6} y={(fig.y1 + fig.meshBottom) / 2 + 4}>透空 {fmt(num(tpH))}m</text>
+                )}
+                {fabricOn && fig.fabricHm > 0 && (
+                  <text className="lbl" x={fig.rightX + 6} y={fig.fabricTop - 6}>帆布 {fmt(num(fabricH))}m</text>
+                )}
               </svg>
             </div>
 

@@ -153,6 +153,8 @@ const fmt = (x, dp = 1) => {
   return r.toLocaleString("en-US", { maximumFractionDigits: dp, minimumFractionDigits: dp });
 };
 const num = (s) => { const v = parseFloat(s); return isFinite(v) ? v : 0; };
+const M2_PER_CAI = 0.303 * 0.303; // 1才 = 1台尺² ≈ 0.0918 ㎡
+const toCai = (m2) => m2 / M2_PER_CAI;
 
 // ── 三市法規門檻（預填值，可於欄位覆寫）──
 const CITY = {
@@ -186,7 +188,7 @@ function FenceCalculator() {
 
   const [fabricOn, setFabricOn] = useState(false);
   const [fabricScope, setFabricScope] = useState("road"); // road=僅臨路面 / all=全部面
-  const [fabricH, setFabricH] = useState("2.4");
+  const [fabricH, setFabricH] = useState("0.6");
 
   const [tpLen, setTpLen] = useState("0"); // 透空圍籬長 m（轉角網狀/上部透空，另計）
   const [tpH, setTpH] = useState("1.6");   // 透空段高 m
@@ -247,8 +249,9 @@ function FenceCalculator() {
     // 透空圍籬（手動）
     const transArea = num(tpLen) * num(tpH);
 
-    // 隔音帆布
-    const fabricL = fabricScope === "all" ? grossL : roadL;
+    // 隔音帆布（長度扣除大門/出入口後再計）
+    const fabricBaseL = fabricScope === "all" ? grossL : roadL;
+    const fabricL = Math.max(0, fabricBaseL - num(openLen));
     const fabricArea = fabricOn ? fabricL * num(fabricH) : 0;
 
     return {
@@ -281,7 +284,7 @@ function FenceCalculator() {
       `RC防溢座　　${fmt(r.baseArea)} ㎡（30cm ${fmt(r.base30L)}m／60cm ${fmt(r.base60L)}m）`,
       `透空圍籬　　${fmt(r.transArea)} ㎡`,
       `綠化面積　　${fmt(r.greenArea)} ㎡（沿街面 ${fmt(r.streetNet)}㎡ × ${fmt(r.ratio * 100, 0)}%）`,
-      `美化面積　　${fmt(r.beautifyArea)} ㎡`,
+      `美化面積　　${fmt(r.beautifyArea)} ㎡（${fmt(toCai(r.beautifyArea), 0)} 才）`,
       `安全走廊　　${fmt(r.corrL)} m ／ 頂蓋 ${fmt(r.corrArea)} ㎡`,
       `隔音帆布　　${fabricOn ? fmt(r.fabricArea) + " ㎡" : "（未計）"}`,
       ``,
@@ -508,7 +511,7 @@ function FenceCalculator() {
 
               <div className="grp">綠美化（沿街面 {fmt(r.streetNet)} ㎡）</div>
               <div className="row"><span className="lab">綠化面積<small>{fmt(r.ratio * 100, 0)}% 密植</small></span><span className="val">{fmt(r.greenArea)} ㎡</span></div>
-              <div className="row"><span className="lab">美化面積<small>彩繪/帆布</small></span><span className="val">{fmt(r.beautifyArea)} ㎡</span></div>
+              <div className="row"><span className="lab">美化面積<small>彩繪/帆布</small></span><span className="val">{fmt(r.beautifyArea)} ㎡ ／ {fmt(toCai(r.beautifyArea), 0)} 才</span></div>
               {r.openDeduct > 0 && (
                 <div className="row muted"><span className="lab">已扣大門/出入口</span><span className="val">−{fmt(r.openDeduct)} ㎡</span></div>
               )}
@@ -554,7 +557,8 @@ function FenceCalculator() {
         <p className="sc-foot">
           計算方式：版片面積＝各面 長×高（分高度加總，含活動門版片）；RC 防溢座＝各面長×防溢座高（圍籬≥3m 取 60cm、否則 30cm）；
           綠美化沿街面＝路寬 ≥ 門檻各面之 長×高，扣除大門/出入口後，依比例分為綠化（密植）與美化（彩繪/帆布）；
-          安全走廊＝路寬 ≥ 門檻且面長 ≥10m 各面之長×走廊寬（頂蓋面積）；透空圍籬與隔音帆布另依輸入計。
+          安全走廊＝路寬 ≥ 門檻且面長 ≥10m 各面之長×走廊寬（頂蓋面積）；透空圍籬另依輸入計。
+          美化面積另換算為「才」（1 才 ＝ 1 台尺² ≈ 0.0918 ㎡）供帆布/彩繪計價；隔音／防塵帆布長度已扣除大門/出入口後再乘帆布高。
           三市門檻已預填但可覆寫——臺北綠美化 ≥10m、桃園 ≥8m（或都市計畫道路）、安全走廊新北 ≥12m 且臨接長 ≥10m。
           本工具僅供估算與報價，實際數量請以核定圖說、都市設計審議、道路挖掘許可及各市最新法規與主管機關認定為準。
         </p>

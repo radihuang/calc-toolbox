@@ -240,6 +240,10 @@ function RebarCalculator() {
   const [nxS, setNxS] = useState("4");  // 寬向每面支數
   const [nyS, setNyS] = useState("4");  // 深向每面支數
 
+  // 牌價
+  const [steelPrice, setSteelPrice] = useState("20000"); // 元/噸
+  const [concPrice, setConcPrice] = useState("3000");    // 元/m³
+
   const [copied, setCopied] = useState(false);
 
   const applyScenario = (sc) => {
@@ -312,6 +316,18 @@ function RebarCalculator() {
   }, [member, sS, hS, bS, hbS, nS, ssS, cbS, chS, nxS, nyS, bar, stir, fy, fc, cv]);
 
   const ok = eff && !eff.invalid;
+
+  // ── 概估費用（依牌價）──
+  const cost = useMemo(() => {
+    if (!ok) return null;
+    const sp = parseFloat(steelPrice), cp = parseFloat(concPrice); // sp: 元/噸　cp: 元/m³
+    const steelKg = member === "slab" ? eff.wt : eff.wMain + (isFinite(eff.wStir) ? eff.wStir : 0);
+    const concM3 = eff.conc;
+    const steelCost = sp > 0 ? steelKg * (sp / 1000) : null;
+    const concCost = cp > 0 ? concM3 * cp : null;
+    if (steelCost === null && concCost === null) return null;
+    return { steelCost: steelCost || 0, concCost: concCost || 0, total: (steelCost || 0) + (concCost || 0) };
+  }, [ok, eff, member, steelPrice, concPrice]);
 
   // ── 規範檢核 ──
   const checks = useMemo(() => {
@@ -858,6 +874,46 @@ function RebarCalculator() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* 牌價與概估費用 */}
+        <div className="sc-panel" style={{ marginTop: 16 }}>
+          <p className="sc-eyebrow">牌價 · 概估費用</p>
+          <div className="sc-two">
+            <div className="sc-field">
+              <div className="sc-label"><span>鋼筋牌價</span><small>元/噸</small></div>
+              <div className="sc-inputrow">
+                <input className="sc-input" type="number" inputMode="decimal"
+                  value={steelPrice} onChange={(e) => setSteelPrice(e.target.value)} placeholder="0" />
+                <span className="sc-unit">元/噸</span>
+              </div>
+              <p className="sc-note" style={{ marginTop: 6 }}>
+                參考網站：<a href="https://chart.metaltrade.tw/ste/ndomestic/" target="_blank" rel="noreferrer">鋼筋盤價（金屬期貨網）↗</a>
+                　<a href="https://concords.moneydj.com/z/ze/zeq/zeqa_D0200960.djhtm" target="_blank" rel="noreferrer">鋼筋行情（MoneyDJ）↗</a>
+              </p>
+            </div>
+            <div className="sc-field">
+              <div className="sc-label"><span>混凝土牌價</span><small>元/m³</small></div>
+              <div className="sc-inputrow">
+                <input className="sc-input" type="number" inputMode="decimal"
+                  value={concPrice} onChange={(e) => setConcPrice(e.target.value)} placeholder="0" />
+                <span className="sc-unit">元/m³</span>
+              </div>
+              <p className="sc-note" style={{ marginTop: 6 }}>
+                參考網站：<a href="https://concords.moneydj.com/z/ze/zeq/zeqa_D0110130.djhtm" target="_blank" rel="noreferrer">預拌混凝土行情（MoneyDJ）↗</a>
+              </p>
+            </div>
+          </div>
+          {ok && cost && (
+            <div className="sc-result" style={{ marginTop: 14 }}>
+              <span className="lab">概估費用{member === "slab" ? "（每 m²）" : "（每 m）"}</span>
+              <span className="val">
+                {fmt(cost.total, 0)} 元
+                <span className="sub2">鋼筋 {fmt(cost.steelCost, 0)} 元＋混凝土 {fmt(cost.concCost, 0)} 元</span>
+              </span>
+            </div>
+          )}
+          <p className="sc-note" style={{ marginTop: 10 }}>牌價依市場即時波動，僅供概估參考，實際報價以供應商當日報價為準。</p>
         </div>
 
         {/* 規範檢核 */}

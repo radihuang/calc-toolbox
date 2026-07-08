@@ -298,19 +298,20 @@ function FenceCalculator() {
     } catch (e) {}
   };
 
-  // SVG 立面幾何
+  // SVG 立面幾何（畫布右側留白給防溢座／透空／帆布標註，避免文字被裁切；版片本身寬度不變）
   const fig = (() => {
-    const W = 360, H = 190, x0 = 46, y1 = 26, y2 = 150; // 地面 y2
+    const W = 420, H = 190, x0 = 46, y1 = 26, y2 = 150, rightX = 330; // 地面 y2
     const totalH = repH;                      // 版片高(含頂)
     const baseHm = baseHeightFor(totalH);      // 防溢座高
     const pxPerM = (y2 - y1) / Math.max(totalH, 2.4);
     const baseTop = y2 - baseHm * pxPerM;
-    const rightX = W - 30;
     const meshHm = Math.min(num(tpH), totalH);           // 透空段高（僅有輸入透空圍籬長時顯示）
     const meshBottom = y1 + meshHm * pxPerM;
-    const fabricHm = Math.min(num(fabricH), totalH);     // 隔音／防塵帆布高
-    const fabricTop = y2 - fabricHm * pxPerM;
-    return { W, H, x0, y1, y2, baseTop, rightX, totalH, baseHm, meshHm, meshBottom, fabricHm, fabricTop };
+    // 隔音／防塵帆布：貼於防溢座頂部往上延伸（帆布掛在版片上，不是從地面量起）
+    const fabricHm = Math.min(num(fabricH), totalH);
+    const fabricBottom = baseTop;
+    const fabricTop = Math.max(y1, baseTop - fabricHm * pxPerM);
+    return { W, H, x0, y1, y2, baseTop, rightX, totalH, baseHm, meshHm, meshBottom, fabricHm, fabricTop, fabricBottom };
   })();
 
   return (
@@ -543,9 +544,9 @@ function FenceCalculator() {
                     <line x1={fig.x0 + 8} y1={fig.meshBottom - 3} x2={fig.rightX - 8} y2={fig.meshBottom - 3} />
                   </g>
                 )}
-                {/* 隔音／防塵帆布（勾選後顯示，覆蓋自地面起算之帆布高範圍） */}
+                {/* 隔音／防塵帆布（勾選後顯示，貼於防溢座頂部往上延伸，非自地面起算） */}
                 {fabricOn && fig.fabricHm > 0 && (
-                  <rect className="fabric" x={fig.x0} y={fig.fabricTop} width={fig.rightX - fig.x0} height={fig.y2 - fig.fabricTop} />
+                  <rect className="fabric" x={fig.x0} y={fig.fabricTop} width={fig.rightX - fig.x0} height={fig.fabricBottom - fig.fabricTop} />
                 )}
                 {/* 防溢座 */}
                 <rect className="base" x={fig.x0} y={fig.baseTop} width={fig.rightX - fig.x0} height={fig.y2 - fig.baseTop} />

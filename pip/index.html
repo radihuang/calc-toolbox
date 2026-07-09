@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>預壘樁數量計算機 · PIP Quantity Calculator</title>
-  <meta name="description" content="輸入樁徑、樁長、支數與間距，即時估算預壘樁的水泥砂漿（包）、沙、鋼筋（噸）與壓梁混凝土數量。支援單一樁徑與 D50／D70 混合，係數透明可調，可一鍵複製備料清單。" />
+  <meta name="description" content="輸入樁徑、樁長、支數與間距，即時估算預壘樁的水泥砂漿（包）、沙、鋼筋（噸）與壓梁混凝土數量。支援單一樁徑與 D50／D60／D70 混合，係數透明可調，可一鍵複製備料清單。" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='8' width='22' height='7' rx='2' fill='none' stroke='%231E241F' stroke-width='2.5'/><circle cx='11' cy='23' r='4' fill='none' stroke='%231C6E63' stroke-width='2.5'/><circle cx='21' cy='23' r='4' fill='none' stroke='%231C6E63' stroke-width='2.5'/></svg>" />
   <style>
     html, body { margin: 0; padding: 0; background: #EBEEE9; }
@@ -164,6 +164,11 @@ const CSS = `
     font-size:14px;padding:7px 9px;width:100%;outline:0;text-align:right;color:var(--ink);}
   .sc-facin:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
 
+  .sc-cellin{border:1px solid var(--line);border-radius:6px;background:#fff;font-family:var(--mono);
+    font-size:13px;padding:5px 6px;width:60px;text-align:right;outline:0;color:var(--ink);}
+  .sc-cellin:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .sc-cellsub{font-family:var(--mono);font-size:10px;color:var(--ink-2);margin-left:5px;}
+
   .sc-note{font-size:11px;color:var(--ink-2);line-height:1.5;margin-top:10px;}
   .sc-err{color:var(--bad);font-size:12.5px;margin-top:8px;font-weight:600;}
   .sc-foot{margin-top:22px;font-size:11px;color:var(--ink-2);line-height:1.55;}
@@ -180,8 +185,9 @@ const fmt = (x, dp = 2) => {
 // cementBag: 每米水泥包數(40kg/包)　sand: 每米沙 m³　nMain: 樁主筋支數(#7)
 // hoopLen: 單圈箍筋長 m(#4)　capB×capH: 對應壓梁斷面 cm
 const PILE = {
-  50: { d: 50, cementBag: 4.5, cementKg: 180, sand: 0.17,  nMain: 8,  hoopLen: 1.15, capB: 60, capH: 60 },
-  70: { d: 70, cementBag: 8.0, cementKg: 320, sand: 0.331, nMain: 10, hoopLen: 1.75, capB: 80, capH: 60 },
+  50: { d: 50, cementBag: 4.5,  cementKg: 180, sand: 0.17,  nMain: 8,  hoopLen: 1.15, capB: 60, capH: 60 },
+  60: { d: 60, cementBag: 5.45, cementKg: 218, sand: 0.25,  nMain: 6,  hoopLen: 1.45, capB: 60, capH: 60 },
+  70: { d: 70, cementBag: 8.0,  cementKg: 320, sand: 0.331, nMain: 10, hoopLen: 1.75, capB: 80, capH: 60 },
 };
 // 鋼筋單位重 kg/m（料單採用值，CNS 560）
 const WT = { "#4": 0.994, "#6": 2.25, "#7": 3.051 };
@@ -198,6 +204,13 @@ const DEF = {
   capHoopLen: 3.0,  // 壓梁單圈箍筋長 m（料單值）
 };
 
+// 每米砂漿配比（水泥包/m、沙 m³/m）— 各案配比不同，故做成可調；預設帶內建值
+const DEF_COEF = {
+  50: { cementBag: 4.5,  sand: 0.17  },
+  60: { cementBag: 5.45, sand: 0.25  },
+  70: { cementBag: 8.0,  sand: 0.331 },
+};
+
 const SCENARIOS = [
   { id: "s1", label: "D50 混合（25/26m）", mode: "mix",
     groups: [ { d: 50, L: "25", N: "108", s: "60" }, { d: 50, L: "26", N: "188", s: "60" } ] },
@@ -206,18 +219,26 @@ const SCENARIOS = [
               { d: 50, L: "25", N: "40", s: "60" }, { d: 50, L: "26", N: "29", s: "60" } ] },
   { id: "s3", label: "單一 D50・25m×100支", mode: "single",
     groups: [ { d: 50, L: "25", N: "100", s: "60" } ] },
+  { id: "s4", label: "單一 D60・21m@90", mode: "single",
+    groups: [ { d: 60, L: "21", N: "144", s: "90" } ] },
 ];
 
-function calcGroup(g, F) {
+function calcGroup(g, F, C) {
   const P = PILE[g.d];
   const N = parseFloat(g.N), L = parseFloat(g.L), s = parseFloat(g.s);
   if (!P || !(N > 0) || !(L > 0)) return null;
   const ss = s > 0 ? s : 0;
 
+  // 砂漿配比：優先用可調值，未填則回退內建
+  const cRaw = C && C[g.d] ? C[g.d].cementBag : undefined;
+  const sRaw = C && C[g.d] ? C[g.d].sand : undefined;
+  const cbPerM   = (cRaw === "" || cRaw == null || isNaN(+cRaw)) ? P.cementBag : +cRaw;
+  const sandPerM = (sRaw === "" || sRaw == null || isNaN(+sRaw)) ? P.sand : +sRaw;
+
   const pileLen  = N * L;                                   // m
-  const cementBag = pileLen * P.cementBag;                  // 包
-  const cementT  = pileLen * P.cementKg / 1000;             // 噸
-  const sand     = pileLen * P.sand;                        // m³
+  const cementBag = pileLen * cbPerM;                       // 包
+  const cementT  = pileLen * cbPerM * 40 / 1000;            // 噸（40kg/包）
+  const sand     = pileLen * sandPerM;                      // m³
 
   const mainT    = N * P.nMain * L * F.mainLap * WT["#7"] / 1000;      // 噸 主筋#7
   const hoopTurns = Math.max(L / PITCH_HOOP - 2, 0);        // 單樁箍筋圈數
@@ -241,6 +262,7 @@ function PIPCalculator() {
     { d: 50, L: "25", N: "40", s: "60" },
   ]);
   const [F, setF] = useState({ ...DEF });
+  const [coef, setCoef] = useState(() => JSON.parse(JSON.stringify(DEF_COEF)));
   const [copied, setCopied] = useState(false);
 
   const rows = mode === "single" ? [single] : groups;
@@ -256,6 +278,10 @@ function PIPCalculator() {
   const setFac = (k, v) => setF((p) => ({ ...p, [k]: v === "" ? "" : parseFloat(v) }));
   const resetFac = () => setF({ ...DEF });
 
+  const setCoefField = (d, k, v) =>
+    setCoef((p) => ({ ...p, [d]: { ...p[d], [k]: v === "" ? "" : parseFloat(v) } }));
+  const resetCoef = () => setCoef(JSON.parse(JSON.stringify(DEF_COEF)));
+
   const applyScenario = (sc) => {
     setMode(sc.mode);
     if (sc.mode === "single") setSingle({ ...sc.groups[0] });
@@ -269,7 +295,7 @@ function PIPCalculator() {
       capMainLap: +F.capMainLap || 0, concWaste: +F.concWaste || 0,
       capHoopLen: +F.capHoopLen || 0,
     };
-    const per = rows.map((g) => calcGroup(g, Fn)).filter(Boolean);
+    const per = rows.map((g) => calcGroup(g, Fn, coef)).filter(Boolean);
     if (!per.length) return null;
     const sum = (f) => per.reduce((a, x) => a + f(x), 0);
     const t = {
@@ -286,7 +312,7 @@ function PIPCalculator() {
     };
     t.steelT = t.mainT + t.hoopT + t.capMainT + t.capHoopT;
     return { per, t };
-  }, [rows, F]);
+  }, [rows, F, coef]);
 
   const ok = !!R;
 
@@ -396,6 +422,7 @@ ${gl}
                     <small>#7×{PILE[single.d].nMain} · 壓梁 {PILE[single.d].capB}×{PILE[single.d].capH}</small></div>
                   <div className="sc-seg">
                     <button data-on={single.d === 50} onClick={() => setSingleField("d", 50)}>D50 ∮50</button>
+                    <button data-on={single.d === 60} onClick={() => setSingleField("d", 60)}>D60 ∮60</button>
                     <button data-on={single.d === 70} onClick={() => setSingleField("d", 70)}>D70 ∮70</button>
                   </div>
                 </div>
@@ -438,6 +465,7 @@ ${gl}
                       <div className="sc-grp-cell">
                         <select value={g.d} onChange={(e) => setGroupField(i, "d", parseInt(e.target.value, 10))}>
                           <option value={50}>D50</option>
+                          <option value={60}>D60</option>
                           <option value={70}>D70</option>
                         </select>
                       </div>
@@ -570,7 +598,7 @@ ${gl}
                 <tr>
                   <td>水泥</td>
                   <td className="num">{ok ? fmt(t.cementBag, 0) : "—"}</td><td>包(40kg)</td>
-                  <td className="formula">總樁長 × 每米包數（D50 4.5／D70 8.0）</td>
+                  <td className="formula">總樁長 × 每米包數（見下方係數表，可調）</td>
                 </tr>
                 <tr>
                   <td>水泥（重）</td>
@@ -580,7 +608,7 @@ ${gl}
                 <tr>
                   <td>沙</td>
                   <td className="num">{ok ? fmt(t.sand, 1) : "—"}</td><td>m³</td>
-                  <td className="formula">總樁長 × 每米沙量（D50 0.17／D70 0.331）</td>
+                  <td className="formula">總樁長 × 每米沙量（見下方係數表，可調）</td>
                 </tr>
 
                 <tr className="sec"><td colSpan="4">鋼筋</td></tr>
@@ -618,7 +646,7 @@ ${gl}
                 <tr>
                   <td>混凝土</td>
                   <td className="num">{ok ? fmt(t.capConc, 1) : "—"}</td><td>m³</td>
-                  <td className="formula">斷面(D50 60×60／D70 80×60) × 長 × 損耗{fmt(+F.concWaste, 2)}</td>
+                  <td className="formula">斷面(D50 60×60／D60 60×60／D70 80×60) × 長 × 損耗{fmt(+F.concWaste, 2)}</td>
                 </tr>
               </tbody>
             </table>
@@ -650,23 +678,34 @@ ${gl}
 
         {/* 係數對照 */}
         <div className="sc-detail">
-          <p className="sc-eyebrow">係數對照 · Coefficients（取自實際施工料單）</p>
+          <div className="sc-eyebrowRow">
+            <p className="sc-eyebrow" style={{ margin: 0 }}>係數對照 · Coefficients（水泥／沙可依各案配比修改）</p>
+            <button className="sc-copy" onClick={resetCoef}>回復預設</button>
+          </div>
           <div className="sc-tablewrap">
             <table className="sc-t">
               <thead>
-                <tr><th>樁徑</th><th style={{ textAlign: "right" }}>水泥 包/m</th>
-                  <th style={{ textAlign: "right" }}>沙 m³/m</th><th style={{ textAlign: "right" }}>樁主筋</th>
+                <tr><th>樁徑</th><th style={{ textAlign: "right" }}>水泥 包/m ✎</th>
+                  <th style={{ textAlign: "right" }}>沙 m³/m ✎</th><th style={{ textAlign: "right" }}>樁主筋</th>
                   <th style={{ textAlign: "right" }}>樁箍筋</th><th style={{ textAlign: "right" }}>單圈長 m</th>
                   <th style={{ textAlign: "right" }}>壓梁斷面</th></tr>
               </thead>
               <tbody>
-                {[50, 70].map((d) => {
+                {[50, 60, 70].map((d) => {
                   const P = PILE[d];
+                  const cb = coef[d].cementBag;
                   return (
                     <tr key={d}>
                       <td>D{d} ∮{d}cm</td>
-                      <td className="num">{P.cementBag}（{P.cementKg}kg）</td>
-                      <td className="num">{P.sand}</td>
+                      <td className="num">
+                        <input className="sc-cellin" type="number" inputMode="decimal" step="0.05"
+                          value={cb} onChange={(e) => setCoefField(d, "cementBag", e.target.value)} />
+                        <span className="sc-cellsub">{fmt((+cb || 0) * 40, 0)}kg</span>
+                      </td>
+                      <td className="num">
+                        <input className="sc-cellin" type="number" inputMode="decimal" step="0.01"
+                          value={coef[d].sand} onChange={(e) => setCoefField(d, "sand", e.target.value)} />
+                      </td>
                       <td className="num">#7×{P.nMain}</td>
                       <td className="num">#4@25</td>
                       <td className="num">{P.hoopLen}</td>
@@ -678,8 +717,9 @@ ${gl}
             </table>
           </div>
           <p className="sc-note">
+            水泥（包/m）與沙（m³/m）預設帶內建值、可依各案砂漿配比修改（不同案配比常有差異）；
+            主筋支數、箍筋、單圈長與壓梁斷面依樁徑固定。
             鋼筋單位重（料單值）：#4 = 0.994、#6 = 2.25、#7 = 3.051 kg/m。壓梁主筋 #6×10、箍筋 #4@20。
-            模型以實際施工料單反推並對帳（鋼筋合計誤差 &lt; 0.5%）。
           </p>
         </div>
 

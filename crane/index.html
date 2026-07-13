@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>單點荷重計算機 · Crane Point Load Calculator</title>
+  <meta name="description" content="輸入吊車空重、配重、吊重、作業半徑與撐座尺寸，即時計算四支撐座於北／東／東北方位之單點最大與最小壓重，附 360° 旋轉模擬與拉力檢核，可一鍵複製檢核紀錄。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='5' width='8' height='6' rx='1.5' fill='none' stroke='%231E241F' stroke-width='2.2'/><rect x='19' y='5' width='8' height='6' rx='1.5' fill='none' stroke='%231E241F' stroke-width='2.2'/><rect x='5' y='21' width='8' height='6' rx='1.5' fill='none' stroke='%231E241F' stroke-width='2.2'/><rect x='19' y='21' width='8' height='6' rx='1.5' fill='none' stroke='%231E241F' stroke-width='2.2'/><line x1='16' y1='16' x2='26' y2='6' stroke='%231C6E63' stroke-width='2.5'/><circle cx='16' cy='16' r='3.4' fill='%231C6E63'/></svg>" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #EBEEE9; }
+    #root { min-height: 100vh; }
+    #boot { font-family: system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+      color: #5C635A; text-align: center; padding: 80px 20px; font-size: 14px; }
+  </style>
+
+  <!-- React 18 + Babel（CDN，瀏覽器端即時編譯，無需 build）。版本已釘死：Babel 7.x 預設走 classic runtime，避免 Babel 8 產生瀏覽器無法解析的 jsx-runtime import -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"><div id="boot">載入中…</div></div>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+// 單點荷重計算機 — 吊車（全地面／油壓式，四點外伸撐座）吊重時單點最大壓重
+// 公式依營造業通用「吊車吊重單點最大壓重」計算書（版次02）反推驗證：
+//   總重 W = 空重＋人字臂＋配重＋吊重，基準均佈 = W/4
+//   吊臂重取空車重 50%、重心於 R/2；配重力臂 = A2＋C
+//   吊重時力矩 M1 = ½[(吊重＋人字臂)×R ＋ 0.5×空重×R/2 − 配重×(A2＋C)]
+//   未吊重力矩 M2 = −½×配重×(A2＋C)
+//   左右支點距 Lx = (A1＋A2)/2，前後支點距 Ly = B，對角距 Ld = √(Lx²＋Ly²)
+//   正向：P = W/4 ± M/(2×支點距)；對角（東北）：P = W/4 ± M/Ld，另兩點 = W/4
+
+const CSS = `
+  .cr-wrap{
+    --paper:#EBEEE9; --panel:#F8F9F6; --ink:#1E241F; --ink-2:#5C635A;
+    --line:#CDD3C9; --accent:#1C6E63; --accent-soft:#DCEAE5;
+    --ok:#2E7D4F; --warn:#B0781A; --bad:#AF3A2E; --bad-soft:#F6E2DF;
+    --grid:#DCE1D8;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    min-height:100%; padding:22px; box-sizing:border-box;
+    -webkit-font-smoothing:antialiased;
+  }
+  .cr-shell{max-width:860px;margin:0 auto;}
+  .cr-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    justify-content:space-between;margin-bottom:4px;}
+  .cr-headL{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .cr-title{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0;}
+  .cr-sub{font-size:12.5px;color:var(--ink-2);letter-spacing:.02em;}
+  .cr-back{font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:4px 10px;background:#fff;transition:.12s;}
+  .cr-back:hover{border-color:var(--accent);color:var(--accent);}
+  .cr-rule{height:1px;background:var(--line);margin:14px 0 20px;}
+  .cr-eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);
+    font-weight:600;margin:0 0 10px;}
+
+  .cr-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:640px){.cr-grid{grid-template-columns:1fr;}}
+
+  .cr-panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;}
+
+  .cr-field{margin-bottom:12px;}
+  .cr-field:last-child{margin-bottom:0;}
+  .cr-label{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;font-weight:600;margin-bottom:6px;}
+  .cr-label small{font-weight:400;color:var(--ink-2);font-family:var(--mono);font-size:11px;}
+  .cr-inputrow{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:9px;
+    overflow:hidden;background:#fff;transition:border-color .15s,box-shadow .15s;}
+  .cr-inputrow:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  .cr-input{flex:1;min-width:0;border:0;outline:0;background:transparent;
+    font-family:var(--mono);font-size:18px;padding:9px 12px;color:var(--ink);width:100%;}
+  .cr-unit{display:flex;align-items:center;padding:0 11px;font-family:var(--mono);
+    font-size:12px;color:var(--ink-2);background:#F0F2ED;border-left:1px solid var(--line);}
+  .cr-two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  .cr-eyebrowRow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .cr-copy{border:1px solid var(--line);background:#fff;border-radius:7px;font-family:var(--sans);
+    font-size:11.5px;color:var(--ink-2);padding:5px 11px;cursor:pointer;transition:.12s;}
+  .cr-copy:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .cr-copy:disabled{opacity:.45;cursor:default;}
+  .cr-copy[data-done="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+  .cr-readouts{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:2px;}
+  .cr-ro{background:var(--panel);padding:13px 12px;text-align:center;}
+  .cr-ro .k{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:600;}
+  .cr-ro .v{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.02em;
+    line-height:1.15;margin-top:5px;font-variant-numeric:tabular-nums;}
+  .cr-ro .u{font-family:var(--mono);font-size:12px;color:var(--ink-2);}
+  .cr-ro .sub{font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:3px;}
+  .cr-ro.hot .v{color:var(--accent);}
+  .cr-ro.bad .v{color:var(--bad);}
+
+  .cr-alert{margin-top:12px;border:1px solid var(--bad);background:var(--bad-soft);color:var(--bad);
+    border-radius:10px;padding:10px 14px;font-size:13px;font-weight:700;line-height:1.5;}
+  .cr-info{margin-top:12px;border:1px solid var(--line);background:#fff;color:var(--ink-2);
+    border-radius:10px;padding:9px 13px;font-size:12px;line-height:1.55;}
+  .cr-info b{color:var(--ink);}
+
+  .cr-brk{margin-top:12px;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .cr-brk .row{display:flex;justify-content:space-between;padding:7px 12px;font-size:12.5px;
+    background:#fff;border-top:1px solid var(--line);gap:10px;}
+  .cr-brk .row:first-child{border-top:0;}
+  .cr-brk .row span:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+  table.cr-tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);
+    border-radius:9px;overflow:hidden;font-size:12.5px;}
+  .cr-tblwrap{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:10px;}
+  .cr-tblwrap table{width:100%;border-collapse:collapse;background:#fff;font-size:12.5px;}
+  .cr-tblwrap th,.cr-tblwrap td{padding:7px 10px;text-align:center;border-top:1px solid var(--line);
+    font-variant-numeric:tabular-nums;}
+  .cr-tblwrap th{background:#F0F2ED;font-size:11.5px;color:var(--ink-2);border-top:0;font-weight:600;}
+  .cr-tblwrap td:first-child{font-weight:600;text-align:left;padding-left:12px;}
+  .cr-tblwrap td.num{font-family:var(--mono);}
+  .cr-tblwrap td.hot{color:var(--accent);font-weight:700;font-family:var(--mono);}
+  .cr-tblwrap td.neg{color:var(--bad);font-weight:700;font-family:var(--mono);}
+
+  .cr-figwrap{border:1px solid var(--line);border-radius:12px;background:#fff;
+    padding:6px;overflow:hidden;}
+  .cr-fig{display:block;width:100%;height:auto;}
+  .cr-fig .grid{stroke:var(--grid);stroke-width:1;}
+  .cr-fig text{font-family:var(--mono);fill:var(--ink);}
+  .cr-fig .dim{fill:var(--ink-2);font-size:10.5px;}
+  .cr-fig .dimline{stroke:var(--ink-2);stroke-width:1;}
+  .cr-fig .pad{fill:#F0F2ED;stroke:var(--ink);stroke-width:1.4;}
+  .cr-fig .pad.max{fill:var(--accent-soft);stroke:var(--accent);stroke-width:2;}
+  .cr-fig .pad.neg{fill:var(--bad-soft);stroke:var(--bad);stroke-width:2;}
+  .cr-fig .padv{font-size:12px;font-weight:700;}
+  .cr-fig .padk{font-size:9.5px;fill:var(--ink-2);}
+  .cr-fig .boom{stroke:var(--accent);stroke-width:4;stroke-linecap:round;}
+  .cr-fig .body{fill:#DFE7E2;stroke:var(--ink);stroke-width:1.4;}
+  .cr-fig .compass{font-size:11px;fill:var(--ink-2);font-weight:600;}
+
+  .cr-slider{width:100%;accent-color:var(--accent);margin:10px 0 2px;}
+  .cr-simrow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    font-size:12.5px;}
+  .cr-simrow .ang{font-family:var(--mono);font-weight:700;font-size:14px;}
+  .cr-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;}
+  .cr-seg button{border:0;background:transparent;font-family:var(--sans);font-size:12px;
+    padding:6px 11px;color:var(--ink-2);cursor:pointer;transition:background .12s,color .12s;}
+  .cr-seg button+button{border-left:1px solid var(--line);}
+  .cr-seg button[data-on="true"]{background:var(--ink);color:#fff;font-weight:600;}
+
+  .cr-note{font-size:11px;color:var(--ink-2);line-height:1.5;margin-top:8px;}
+  .cr-foot{margin-top:22px;font-size:11px;color:var(--ink-2);line-height:1.6;}
+  .cr-err{color:var(--bad);font-size:12.5px;margin-top:8px;font-weight:600;}
+  @media(prefers-reduced-motion:reduce){.cr-inputrow{transition:none;}}
+`;
+
+const fmt = (x, dp = 1) => {
+  if (!isFinite(x)) return "—";
+  return Number(x.toFixed(dp)).toLocaleString("en-US",
+    { maximumFractionDigits: dp, minimumFractionDigits: dp });
+};
+
+function Field({ label, hint, val, set, unit }) {
+  return (
+    <div className="cr-field">
+      <div className="cr-label"><span>{label}</span><small>{hint}</small></div>
+      <div className="cr-inputrow">
+        <input className="cr-input" type="number" inputMode="decimal" step="any"
+          value={val} onChange={(e) => set(e.target.value)} placeholder="0" />
+        <span className="cr-unit">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function CraneCalculator() {
+  // 荷重（t）
+  const [weS, setWe] = useState("80");   // 吊車空重（含吊臂）
+  const [wpS, setWp] = useState("0");    // 人字臂（副桿）重，作用於吊重處
+  const [wcS, setWc] = useState("70");   // 配重塊重
+  const [wlS, setWl] = useState("15");   // 吊重
+  const [rS, setR]   = useState("25");   // 最大作業半徑（m）
+  // 尺寸（m）
+  const [a1S, setA1] = useState("5.0");
+  const [a2S, setA2] = useState("4.2");
+  const [bS, setB]   = useState("5.0");
+  const [cS, setC]   = useState("1.2");
+
+  const [deg, setDeg] = useState(45);      // 模擬器吊臂方位角（自北向東）
+  const [simLoad, setSimLoad] = useState(true); // 模擬器：吊重中 / 未吊重
+  const [copied, setCopied] = useState(false);
+
+  const calc = useMemo(() => {
+    const We = parseFloat(weS), Wp = parseFloat(wpS), Wc = parseFloat(wcS),
+          Wl = parseFloat(wlS), R = parseFloat(rS),
+          A1 = parseFloat(a1S), A2 = parseFloat(a2S), B = parseFloat(bS), C = parseFloat(cS);
+    if (![We, Wp, Wc, Wl, R, A1, A2, B, C].every(isFinite)) return null;
+    if (We < 0 || Wp < 0 || Wc < 0 || Wl < 0 || C < 0) return null;
+    if (!(A1 > 0) || !(A2 > 0) || !(B > 0) || !(R > 0)) return null;
+
+    const W = We + Wp + Wc + Wl;
+    if (!(W > 0)) return null;
+    const Wlp = Wl + Wp;
+    const Lx = (A1 + A2) / 2;         // 左右支點距
+    const Ly = B;                     // 前後支點距
+    const Ld = Math.hypot(Lx, Ly);    // 對角支點距
+    const armC = A2 + C;              // 配重力臂
+    const M1 = (Wlp * R + 0.5 * We * (R / 2) - Wc * armC) / 2; // 吊重時
+    const M2 = -(Wc * armC) / 2;                               // 未吊重
+    const q = W / 4;
+
+    const mk = (arm) => ({ max: q + M1 / arm, min: q + M2 / arm,
+                           fmax: q - M2 / arm, fmin: q - M1 / arm });
+    const N = mk(2 * Ly);   // 北：近端 P1P2（max/min），遠端 P3P4（fmax/fmin）
+    const E = mk(2 * Lx);   // 東：近端 P2P4，遠端 P1P3
+    const D = mk(Ld);       // 東北：近角 P2，遠角 P3，P1=P4=q
+
+    const all = [N.max, N.min, N.fmax, N.fmin, E.max, E.min, E.fmax, E.fmin,
+                 D.max, D.min, D.fmax, D.fmin, q];
+    const Pmax = Math.max(...all);
+    const Pmin = Math.min(...all);
+    const maxDir = Pmax === D.max ? "東北方對角" : Pmax === E.max ? "東方" : "北方";
+
+    // 全角度掃描（剛性板模型）：P(θ)=q＋(M·cosθ)/(2Ly)＋(M·sinθ)/(2Lx)
+    const dN = M1 / (2 * Ly), dE = M1 / (2 * Lx);
+    const Pmax360 = q + Math.hypot(dN, dE);
+    const th360 = Math.atan2(dE, dN) * 180 / Math.PI; // 自北向東
+    const elong = Math.abs(Pmax360 - Pmax) > 0.05 * Math.max(1, Math.abs(Pmax));
+
+    return { We, Wp, Wc, Wl, R, A1, A2, B, C, W, Wlp, Lx, Ly, Ld, armC, M1, M2, q,
+             N, E, D, Pmax, Pmin, maxDir, Pmax360, th360, elong };
+  }, [weS, wpS, wcS, wlS, rS, a1S, a2S, bS, cS]);
+
+  const ok = !!calc;
+
+  // 模擬器即時值（剛性板模型，隨角度連續變化）
+  const sim = useMemo(() => {
+    if (!ok) return null;
+    const M = simLoad ? calc.M1 : calc.M2;
+    const dN = M / (2 * calc.Ly), dE = M / (2 * calc.Lx);
+    const rad = deg * Math.PI / 180;
+    const cn = Math.cos(rad), sn = Math.sin(rad);
+    const p1 = calc.q + dN * cn - dE * sn; // 北西
+    const p2 = calc.q + dN * cn + dE * sn; // 北東
+    const p3 = calc.q - dN * cn - dE * sn; // 南西
+    const p4 = calc.q - dN * cn + dE * sn; // 南東
+    return { p: [p1, p2, p3, p4], max: Math.max(p1, p2, p3, p4) };
+  }, [ok, calc, deg, simLoad]);
+
+  const dirTxt = (d) => {
+    const names = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"];
+    return names[Math.round(((d % 360) + 360) % 360 / 45) % 8];
+  };
+
+  const handleCopy = async () => {
+    if (!ok) return;
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const c = calc;
+    const row = (lab, near, far, nearPts, farPts) =>
+      `${lab}　${nearPts} max=${fmt(near.max)} / min=${fmt(near.min)}；${farPts} max=${fmt(near.fmax)} / min=${fmt(near.fmin)}`;
+    const txt =
+`── 吊車吊重單點最大壓重 檢核 ──
+${ts}
+荷重：空重 ${fmt(c.We)}＋人字臂 ${fmt(c.Wp)}＋配重 ${fmt(c.Wc)}＋吊重 ${fmt(c.Wl)} ＝ 總重 ${fmt(c.W)} T
+最大作業半徑 R＝${fmt(c.R)} m；A1＝${fmt(c.A1,2)}、A2＝${fmt(c.A2,2)}、B＝${fmt(c.B,2)}、C＝${fmt(c.C,2)} m
+支點距：左右 ${fmt(c.Lx,2)}、前後 ${fmt(c.Ly,2)}、對角 ${fmt(c.Ld,2)} m；配重力臂 A2＋C＝${fmt(c.armC,2)} m
+力矩：吊重時 M1＝${fmt(c.M1)}；未吊重 M2＝${fmt(c.M2)} T·m；均佈 W/4＝${fmt(c.q)} T
+
+吊重物在北方　P1=P2 max=${fmt(c.N.max)} / min=${fmt(c.N.min)}；P3=P4 max=${fmt(c.N.fmax)} / min=${fmt(c.N.fmin)}
+吊重物在東方　P2=P4 max=${fmt(c.E.max)} / min=${fmt(c.E.min)}；P1=P3 max=${fmt(c.E.fmax)} / min=${fmt(c.E.fmin)}
+吊重物在東北方　P2 max=${fmt(c.D.max)} / min=${fmt(c.D.min)}；P3 max=${fmt(c.D.fmax)} / min=${fmt(c.D.fmin)}；P1=P4=${fmt(c.q)}
+
+單點最大壓重 Pmax＝${fmt(c.Pmax)} T；單點最小壓重 Pmin＝${fmt(c.Pmin)} T${c.Pmin < 0 ? "　←已產生拉力（不合理），應增加配重" : ""}
+全角度掃描最不利 ≈ ${fmt(c.Pmax360)} T（θ≈${Math.round(c.th360)}°）
+
+假設：吊臂重採空車重 50%、重心於 R/2；配重力臂＝A2＋C；概估值。
+注意：吊車作業過程若超過此最大壓重時，應立即停止作業，重新檢討合理壓重。`;
+    try {
+      await navigator.clipboard.writeText(txt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (e) {}
+  };
+
+  // ── 平面示意圖幾何 ──
+  const FW = 340, FH = 300;
+  const cx = FW / 2, cy = FH / 2 + 6;
+  const padPos = [
+    { x: cx - 92, y: cy - 78 }, { x: cx + 92, y: cy - 78 },
+    { x: cx - 92, y: cy + 78 }, { x: cx + 92, y: cy + 78 },
+  ];
+  const boomLen = 92;
+  const rad = deg * Math.PI / 180;
+  const bx = cx + boomLen * Math.sin(rad), by = cy - boomLen * Math.cos(rad);
+
+  const tblRow = (label, pts, g, farPts) => (
+    <tr>
+      <td>{label}</td>
+      <td className="num">{pts}</td>
+      <td className={g.max === calc.Pmax ? "hot" : "num"}>{fmt(g.max)}</td>
+      <td className={g.min < 0 ? "neg" : "num"}>{fmt(g.min)}</td>
+      <td className="num">{farPts}</td>
+      <td className="num">{fmt(g.fmax)}</td>
+      <td className={g.fmin < 0 ? "neg" : (g.fmin === calc.Pmin ? "hot" : "num")}>{fmt(g.fmin)}</td>
+    </tr>
+  );
+
+  return (
+    <div className="cr-wrap">
+      <style>{CSS}</style>
+      <div className="cr-shell">
+        <div className="cr-head">
+          <div className="cr-headL">
+            <h1 className="cr-title">單點荷重計算機</h1>
+            <span className="cr-sub">Crane Point Load · 吊車撐座單點最大壓重</span>
+          </div>
+          <a className="cr-back" href="../">← 工具箱</a>
+        </div>
+        <div className="cr-rule" />
+
+        <div className="cr-grid">
+          {/* 輸入 */}
+          <div className="cr-panel">
+            <p className="cr-eyebrow">輸入 · 荷重</p>
+            <div className="cr-two">
+              <Field label="吊車空重" hint="含吊臂" val={weS} set={setWe} unit="T" />
+              <Field label="人字臂（副桿）重" hint="吊重處" val={wpS} set={setWp} unit="T" />
+            </div>
+            <div className="cr-two">
+              <Field label="配重塊重" hint="counterweight" val={wcS} set={setWc} unit="T" />
+              <Field label="吊重" hint="吊掛物" val={wlS} set={setWl} unit="T" />
+            </div>
+            <Field label="最大作業半徑 R" hint="迴轉中心至吊重" val={rS} set={setR} unit="m" />
+
+            <p className="cr-eyebrow" style={{ marginTop: 16 }}>輸入 · 吊車基本尺寸</p>
+            <div className="cr-two">
+              <Field label="A1" hint="前撐座左右支距" val={a1S} set={setA1} unit="m" />
+              <Field label="A2" hint="後撐座左右支距" val={a2S} set={setA2} unit="m" />
+            </div>
+            <div className="cr-two">
+              <Field label="B" hint="前後撐座支距" val={bS} set={setB} unit="m" />
+              <Field label="C" hint="配重重心距後支點" val={cS} set={setC} unit="m" />
+            </div>
+            {!ok && <p className="cr-err">請確認輸入：A1、A2、B、R 須大於 0，重量不可為負。</p>}
+
+            {ok && (
+              <div className="cr-brk">
+                <div className="row"><span>總重 W</span><span>{fmt(calc.W)} T</span></div>
+                <div className="row"><span>均佈基準 W/4</span><span>{fmt(calc.q)} T</span></div>
+                <div className="row"><span>支點距 左右／前後／對角</span>
+                  <span>{fmt(calc.Lx, 2)}／{fmt(calc.Ly, 2)}／{fmt(calc.Ld, 2)} m</span></div>
+                <div className="row"><span>吊重時力矩 M1</span><span>{fmt(calc.M1)} T·m</span></div>
+                <div className="row"><span>未吊重力矩 M2</span><span>{fmt(calc.M2)} T·m</span></div>
+              </div>
+            )}
+          </div>
+
+          {/* 結果 + 模擬 */}
+          <div className="cr-panel">
+            <div className="cr-eyebrowRow">
+              <p className="cr-eyebrow" style={{ margin: 0 }}>結果 · Output</p>
+              <button className="cr-copy" data-done={copied} onClick={handleCopy} disabled={!ok}>
+                {copied ? "已複製 ✓" : "複製檢核紀錄"}
+              </button>
+            </div>
+
+            <div className="cr-readouts">
+              <div className="cr-ro hot">
+                <div className="k">單點最大壓重 Pmax</div>
+                <div className="v">{ok ? fmt(calc.Pmax) : "—"}</div>
+                <div className="u">T</div>
+                <div className="sub">{ok ? `${calc.maxDir}最不利` : ""}</div>
+              </div>
+              <div className={"cr-ro" + (ok && calc.Pmin < 0 ? " bad" : "")}>
+                <div className="k">單點最小壓重 Pmin</div>
+                <div className="v">{ok ? fmt(calc.Pmin) : "—"}</div>
+                <div className="u">T</div>
+                <div className="sub">{ok && calc.Pmin < 0 ? "已產生拉力" : "全方位最小"}</div>
+              </div>
+            </div>
+
+            {ok && calc.Pmin < 0 && (
+              <div className="cr-alert">Pmin ＜ 0：撐座已產生拉力（不合理），應增加配重或縮小作業半徑。</div>
+            )}
+            {ok && calc.elong && calc.Pmin >= 0 && (
+              <div className="cr-info">
+                支點佈置狹長：全角度掃描最不利單點壓重 ≈ <b>{fmt(calc.Pmax360)} T</b>
+                （吊臂方位約 {Math.round(calc.th360)}°），高於傳統計算書東北方對角值，建議以較大者檢討鋪板與地耐力。
+              </div>
+            )}
+
+            {/* 模擬器 */}
+            <div className="cr-figwrap" style={{ marginTop: 12 }}>
+              <svg className="cr-fig" viewBox={`0 0 ${FW} ${FH}`} role="img" aria-label="吊車撐座平面示意圖與旋轉模擬">
+                <line className="grid" x1={cx} y1={18} x2={cx} y2={FH - 12} />
+                <line className="grid" x1={24} y1={cy} x2={FW - 24} y2={cy} />
+                <text className="compass" x={cx} y={14} textAnchor="middle">北</text>
+                <text className="compass" x={FW - 12} y={cy + 4} textAnchor="middle">東</text>
+                <text className="compass" x={cx} y={FH - 2} textAnchor="middle">南</text>
+                <text className="compass" x={12} y={cy + 4} textAnchor="middle">西</text>
+                {/* 車體 */}
+                <rect className="body" x={cx - 26} y={cy - 62} width={52} height={124} rx={7} />
+                {/* 撐座 */}
+                {padPos.map((p, i) => {
+                  const v = sim ? sim.p[i] : NaN;
+                  const isMax = sim && v === sim.max;
+                  const cls = "pad" + (isFinite(v) && v < 0 ? " neg" : isMax ? " max" : "");
+                  return (
+                    <g key={i}>
+                      <line className="dimline" x1={cx} y1={cy} x2={p.x} y2={p.y} strokeDasharray="3 3" opacity="0.5" />
+                      <rect className={cls} x={p.x - 34} y={p.y - 22} width={68} height={44} rx={6} />
+                      <text className="padk" x={p.x} y={p.y - 8} textAnchor="middle">P{i + 1}（{["北西","北東","南西","南東"][i]}）</text>
+                      <text className="padv" x={p.x} y={p.y + 11} textAnchor="middle"
+                        fill={isFinite(v) && v < 0 ? "var(--bad)" : isMax ? "var(--accent)" : "var(--ink)"}>
+                        {isFinite(v) ? fmt(v) + " T" : "—"}
+                      </text>
+                    </g>
+                  );
+                })}
+                {/* 吊臂 */}
+                <line className="boom" x1={cx} y1={cy} x2={bx} y2={by} />
+                <circle cx={cx} cy={cy} r={9} fill="var(--ink)" />
+                <circle cx={bx} cy={by} r={5} fill="var(--accent)" />
+              </svg>
+            </div>
+            <div className="cr-simrow" style={{ marginTop: 8 }}>
+              <span>吊臂方位 <span className="ang">{deg}°（{dirTxt(deg)}）</span></span>
+              <div className="cr-seg">
+                <button data-on={simLoad} onClick={() => setSimLoad(true)}>吊重中</button>
+                <button data-on={!simLoad} onClick={() => setSimLoad(false)}>未吊重</button>
+              </div>
+            </div>
+            <input className="cr-slider" type="range" min="0" max="360" step="1"
+              value={deg} onChange={(e) => setDeg(parseInt(e.target.value, 10))} />
+            <p className="cr-note">
+              模擬為剛性板模型 P(θ)＝W/4＋M·cosθ/(2×前後支距)＋M·sinθ/(2×左右支距)，
+              吊臂連續旋轉時各撐座壓重之變化；表格另依計算書慣例以北／東／東北三方位檢核。
+            </p>
+          </div>
+        </div>
+
+        {/* 三方位表 */}
+        {ok && (
+          <div className="cr-panel" style={{ marginTop: 16 }}>
+            <p className="cr-eyebrow">計算書三方位檢核表（吊重時 max ／ 未吊重 min）</p>
+            <div className="cr-tblwrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>吊重物方位</th>
+                    <th>近端支點</th><th>max（T）</th><th>min（T）</th>
+                    <th>遠端支點</th><th>max（T）</th><th>min（T）</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tblRow("北方", "P1＝P2", calc.N, "P3＝P4")}
+                  {tblRow("東方", "P2＝P4", calc.E, "P1＝P3")}
+                  {tblRow("東北方", "P2", calc.D, "P3")}
+                </tbody>
+              </table>
+            </div>
+            <p className="cr-note">
+              東北方時 P1＝P4＝W/4＝{fmt(calc.q)} T（位於翻轉中性軸上）。
+              南、西等其餘方位與北、東對稱，故僅列三方位。
+              東北方遠角 min 本工具採與近角一致之對角公式 W/4−M1/對角距（＝{fmt(calc.D.fmin)} T）；
+              傳統計算書此欄公式不同且數值偏高，本工具取較保守值，故全表 Pmin 可能低於舊表。
+            </p>
+          </div>
+        )}
+
+        <p className="cr-foot">
+          計算模型（依營造業通用「吊車吊重單點最大壓重」計算書版次02 反推驗證）：
+          總重 W＝空重＋人字臂＋配重＋吊重，四撐座均佈基準 W/4；
+          吊臂重採空車重 50%、重心於 R/2；人字臂重作用於吊重處；配重力臂＝A2＋C；
+          吊重時力矩 M1＝½[(吊重＋人字臂)×R＋0.5×空重×R/2−配重×(A2＋C)]，未吊重 M2＝−½×配重×(A2＋C)；
+          左右支點距＝(A1＋A2)/2、前後支點距＝B；正向 P＝W/4±M/(2×支點距)，對角 P＝W/4±M/對角距。
+          本計算為概估值，吊車作業過程若超過此最大壓重時，應立即停止作業，重新檢討合理壓重；
+          實際作業計畫請以吊車原廠諸元表、性能曲線與簽證文件為準。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<CraneCalculator />);
+
+  </script>
+</body>
+</html>
